@@ -140,11 +140,11 @@ def test4bop(target_dir = 'datasets/lmo/test/000002', obj_id = 1, save_dir = 're
 
     # 加载自定义网络模型
 
-    rot_net = Pose_Net(d_model = 240, nhead=4, num_layers=4, num_samples =12).to(device)
+    rot_net = Pose_Net(d_model = 240, nhead=4, num_layers=4, num_samples = 8).to(device)
     # rot_net = Rot_Net(d_model = 240, nhead=4, num_layers=4, num_samples =[1, 5, 10], window_sizes = [128, 64, 32]).to(device)
     center_net = CenterUV_Net().to(device)
     # depth_net = DepthTransformer(d_model=64, nhead=4, num_layers=4).to(device)
-    rot_net.load_state_dict(torch.load(f"weights/rotv2_obj_{obj_id}.pth", map_location=device))
+    rot_net.load_state_dict(torch.load(f"weights/pose_obj_{obj_id}.pth", map_location=device))
     rot_net.eval()
     center_net.load_state_dict(torch.load(f"weights/centeruv_obj_{obj_id}.pth", map_location=device))
     center_net.eval()
@@ -154,60 +154,23 @@ def test4bop(target_dir = 'datasets/lmo/test/000002', obj_id = 1, save_dir = 're
 
 
     # 打印部分数据样本
-    for scene_id, img_id, obj_id, half_diameter, minxyxy, rgb, mask, depth_img, t_gt, centerxyxy_gt, centeruv_gt, centercrop_gt, rot_gt in test_loader:
-        scene_id, img_id, obj_id, half_diameter, minxyxy, rgb, mask, depth_img, t_gt, centerxyxy_gt, centeruv_gt, centercrop_gt, rot_gt = scene_id.to(device), img_id.to(device), obj_id.to(device), half_diameter.to(device), minxyxy.to(device), rgb.to(device), mask.to(device), depth_img.to(device), t_gt.to(device), centerxyxy_gt.to(device), centeruv_gt.to(device), centercrop_gt.to(device), rot_gt.to(device)
+    for scene_id, img_id, obj_id, half_diameter, minxyxy, rgb, mask, depth_img, t_gt, centerxyxy_gt, centeruv_gt, centercrop_gt, R_gt in test_loader:
+        scene_id, img_id, obj_id, half_diameter, minxyxy, rgb, mask, depth_img, t_gt, centerxyxy_gt, centeruv_gt, centercrop_gt, R_gt = scene_id.to(device), img_id.to(device), obj_id.to(device), half_diameter.to(device), minxyxy.to(device), rgb.to(device), mask.to(device), depth_img.to(device), t_gt.to(device), centerxyxy_gt.to(device), centeruv_gt.to(device), centercrop_gt.to(device), R_gt.to(device)
         start_time = time.perf_counter()
-        print(f'minxyxy:{minxyxy}')
-        mincrop = crop_xyxy_advanced(rgb,minxyxy).to(device)
-        print(mincrop.shape)
-        centeruv_relative_pred = center_net(mincrop)
-        print(centeruv_relative_pred.shape)    
-        u_pred = centeruv_relative_pred[:, 0]*(minxyxy[:, 2]-minxyxy[:, 0])+minxyxy[:, 0]
-        v_pred = centeruv_relative_pred[:, 1]*(minxyxy[:, 3]-minxyxy[:, 1])+minxyxy[:, 1]
-        u_pred = torch.clamp(u_pred.long(), min=0, max=rgb.shape[3] - 1).to(device)
-        v_pred = torch.clamp(v_pred.long(), min=0, max=rgb.shape[2] - 1).to(device)
-        # u_pred,v_pred = centeruv_gt[:, 0],centeruv_gt[:, 1]
-        centeruv_pred = torch.stack([u_pred, v_pred], dim=1)
-        print(f"u_pred: {u_pred}, v_pred: {v_pred}")
-        print(f"centeruv_gt: {centeruv_gt}")
-        binary_mask = (mask > 0).float()  # [H, W]
+
 
         # 将 mask 扩展为与 RGB 图像通道对齐的形状
         # binary_mask = binary_mask.unsqueeze(0)  # [1, H, W]
         
         # 将 RGB 图像中 mask 为 0 的区域设置为 0
-        masked_rgb = rgb * binary_mask 
         # print(f"rgb: {rgb.shape}")
         # print(f"mask: {mask.shape}")
 
 
 
-        # print(f"rgba: {rgba.shape}")
-        # 计算各个偏移值
-        offsets = torch.stack([
-            abs(minxyxy[:, 2] - u_pred),  # x 方向右侧的偏移
-            abs(minxyxy[:, 0] - u_pred),  # x 方向左侧的偏移
-            abs(minxyxy[:, 3] - v_pred),  # y 方向下方的偏移
-            abs(minxyxy[:, 1] - v_pred)   # y 方向上方的偏移
-        ], dim=1)
-
         # 在 dim=1 维度上取最大值，获取 halfside
-        halfside, _ = torch.max(offsets, dim=1)
 
-        print(f"halfside: {halfside.shape}")
-
-        # 计算中心区域的坐标 (centerxyxy)
-        centerxyxy = torch.stack((
-            torch.clamp(u_pred.long() - halfside, min=0, max=rgb.shape[3] - 1),  # 左侧 x
-            torch.clamp(v_pred.long() - halfside, min=0, max=rgb.shape[2] - 1),  # 上侧 y
-            torch.clamp(u_pred.long() + halfside, min=0, max=rgb.shape[3] - 1),  # 右侧 x
-            torch.clamp(v_pred.long() + halfside, min=0, max=rgb.shape[2] - 1)   # 下侧 y
-        ), dim=1).to(device)
-
-        print(f"centerxyxy: {centerxyxy}")
-        print(f'centerxyxy_gt: {centerxyxy_gt}')
-        centercrop = crop_xyxy_advanced(masked_rgb,centerxyxy).to(device)
-        centercrop = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(centercrop)
+        centercrop = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(centercrop_gt)
 
         rgba_sample = centercrop[0]
         # 再将其映射到 [0, 255]
@@ -219,62 +182,47 @@ def test4bop(target_dir = 'datasets/lmo/test/000002', obj_id = 1, save_dir = 're
         # print(f'centercrop_gt: {centercrop_gt}')
         # 深度和旋转预测
         
-        
-        
-        sizealpha = 2*halfside/128
-        sizealpha = sizealpha.unsqueeze(1)
-        print(f'sizealpha: {sizealpha.shape}')
+        side = centerxyxy_gt[:, 2] - centerxyxy_gt[:, 0]
+        print(side)
+        sizealpha = (side/128).unsqueeze(0).to(device)
+        print(f'sizealpha: {sizealpha}')
 
-        rot_pred,depth_pred = rot_net(centercrop,sizealpha)
-        rot_pred = rot_pred.view(-1, 3, 3)
-        print(f"rot_mat:{rot_pred.shape}")
+        R_pred,d_pred = rot_net(centercrop,sizealpha)
+        # global_featuremap, _ = rot_net.global_extractor(centercrop)  # 获取全局特征图
+        # saliency_map = rot_net.keypoint_extractor(global_featuremap) 
+        # 将 rgb 图像传入 Transformer，进行均匀采样并得到回归结果
+        # rot_net.visualize_saliency_map(centercrop, saliency_map)
+        R_pred = R_pred.view(-1, 3, 3)
+        centeruv_pred = centeruv_gt
         print(f'centeruv_gt:{centeruv_gt}')
-        print(f'centeruv_pred:{centeruv_pred}')
-        centeruv_3d = torch.cat([centeruv_pred, torch.ones((centeruv_pred.shape[0],1)).to(device)], dim=1)
-        print(f"centeruv_3d:{centeruv_3d.shape}")
-        
-
+        centeruv_3d = torch.cat([centeruv_pred, torch.ones((centeruv_pred.shape[0], 1), device=device)], dim=1)
+        print(f'centeruv_3d:{centeruv_3d}')
         p = torch.tensor([0, 0, 1], dtype=torch.float32).repeat(centeruv_pred.shape[0], 1).to(device)
-        print(f'p:{p.shape}')
 
         q = torch.matmul(Kc_inv, centeruv_3d.T).T.to(device)
-        print(f'q:{q.shape}')
 
         Rc=psi_tensor(p, q)
         print(f'Rc:{Rc.shape}')
 
-        R = torch.matmul(Rc, rot_pred)
-        print(f'R:{R}')
+        R_pred = torch.matmul(Rc, R_pred)
+        print(f'R_pred:{R}')
 
-        print(f'rot_gt =:{rot_gt}')
+        print(f'R_gt =:{R_gt}')
 
-        np.set_printoptions(threshold=np.inf)
-        bbox_depth = crop_xyxy_advanced(depth_img,centerxyxy).to(device)
-        bbox_mask = crop_xyxy_advanced(mask,centerxyxy).to(device)
-        bbox_mask = (bbox_mask > 0).float()
-        bbox_depth  = bbox_depth * bbox_mask
-        print(f'bbox_depth:{bbox_depth.shape}')
-        bbox_depth = transforms.Resize((32, 32))(bbox_depth)
-        bbox_depth = bbox_depth.squeeze(0)
-        print(f'bbox_depth:{bbox_depth.shape}')
-        
-        # depth_pred = depth_net(bbox_depth)
-        depth_pred = depth_pred.unsqueeze(0)
 
-        # quaternions = batch_rotmat_to_quat(rot_mat) 
-        # depth_pred = t_gt[:, 2]
-
-        x_c = (u_pred - camera['cx']) * depth_pred / camera['fx']
-        y_c = (v_pred - camera['cy']) * depth_pred / camera['fy']
-        print(f'x_c:{x_c}, y_c:{y_c}, depth_pred:{depth_pred}')
+        d_pred = torch.cat([torch.zeros((d_pred.shape[0], 2),device=device), d_pred], dim=1)
+        d_pred = d_pred.view(-1, 3, 1)
+        t_pred = torch.matmul(Rc, d_pred)
+        t_pred = t_pred.reshape(-1, 3)
+        print(f't_pred:{t_pred}')
         print(f't_gt:{t_gt}')
-        t = torch.stack([x_c, y_c, depth_pred], dim=1).detach()  # 转换为 NumPy 数组
+
         end_time = time.perf_counter()
         score=torch.tensor(1).repeat(scene_id.shape[0])
         elapsed_time=torch.tensor(-1).repeat(scene_id.shape[0])
 
 
-        write2csv(save_dir,scene_id, img_id, obj_id, score,R,t,elapsed_time)
+        write2csv(save_dir,scene_id, img_id, obj_id, score,R_gt,t_pred,elapsed_time)
             
 
 

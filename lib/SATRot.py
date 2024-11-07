@@ -6,6 +6,7 @@ import math
 import torchvision.models as models
 from torchvision.models import ResNet18_Weights,ResNet34_Weights
 
+
 class MultiScalePositionalEncoding(nn.Module):
     def __init__(self, d_model):
         """
@@ -130,9 +131,9 @@ class Keypoints_extractor(nn.Module):
         
         return keypoints
     
-class Rot_Net(nn.Module):
+class SATRot(nn.Module):
     def __init__(self, d_model, nhead, num_layers, num_samples =10, window_size = 1):
-        super(Rot_Net, self).__init__()
+        super(SATRot, self).__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self.pos_encoder = MultiScalePositionalEncoding(d_model)
         self.num_samples = num_samples
@@ -282,7 +283,7 @@ if __name__ == '__main__':
     d_model = 60
     nhead = 4
     num_layers = 3
-    model = Rot_Net(d_model=d_model, nhead=nhead, num_layers=num_layers).to(device)
+    model = SATRot(d_model=d_model, nhead=nhead, num_layers=num_layers).to(device)
     
 
     # 将 RGBA 图像传入 Transformer，进行均匀采样并得到回归结果

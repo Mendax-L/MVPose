@@ -11,7 +11,7 @@ from utils.loader.SATRot_loader import SATRot_loader
 from lib.SATRot import SATRot
 from utils.earlystop import EarlyStopping
 from lib.loss import criterion_R, criterion_uv
-from lib.config import Kc_lmo, Kc_lmo_inv, SATRot_transform
+from lib.config import Kc_lmo, Kc_lmo_inv, SATRot_train_transform, SATRot_test_transform
 from lib.to_allo import to_allo
 
 
@@ -104,8 +104,8 @@ def train_R(obj_ids):
     for obj_id in obj_ids:
         train_target_dirs = [f'datasets/lmo/train/{str(obj_id).zfill(6)}', f'datasets/lm/{str(obj_id).zfill(6)}'] # RGB 图像目录
         test_target_dirs = [f'datasets/lmo/test/000002']  # RGB 图像目录
-        train_loader = SATRot_loader(target_dirs = train_target_dirs, obj_id=obj_id, transform =SATRot_transform)
-        test_loader = SATRot_loader(target_dirs = test_target_dirs, obj_id=obj_id, transform =None)
+        train_loader = SATRot_loader(target_dirs = train_target_dirs, obj_id=obj_id, transform =SATRot_train_transform)
+        test_loader = SATRot_loader(target_dirs = test_target_dirs, obj_id=obj_id, transform =SATRot_test_transform)
     
         # Train and val the model
         train_model(model, train_loader, test_loader, optimizer, num_epochs=45, save_path=f"weights/SATR_obj_{obj_id}.pth")

@@ -1,12 +1,13 @@
-# 从多个视角预测深度，再做深度的平均
-import numpy as np
-
-def Center_Distance(R, t, u1, v1, u2, v2, K1, K2):
+def Center_Distance(R, t, uv1, uv2, K1, K2):
     # 提取旋转矩阵和平移向量
     r31, r32, r33 = R[2, :]
     r11, r12, r13 = R[0, :]
     r21, r22, r23 = R[1, :]
     tx, ty, tz = t
+
+    # 提取坐标点 u1, v1 和 u2, v2
+    u1, v1 = uv1
+    u2, v2 = uv2
 
     # 提取内参矩阵 K1 和 K2
     fx1, fy1, cx1, cy1 = K1[0, 0], K1[1, 1], K1[0, 2], K1[1, 2]
@@ -27,26 +28,14 @@ def Center_Distance(R, t, u1, v1, u2, v2, K1, K2):
 
     return Z
 
-# 示例输入
-R = np.array([[0.99622298, 0, -0.08683191],  # 旋转矩阵 R
-              [0.0171, 0, 0.0147],
-              [0.0104, -0.0144, 0.9999]])
-R = np.eye(3)
+def Depth_From_Multiviews(CR_list , Ct_list, uv_list, Kc_list):
 
-t = np.array([0.1,0, 0])  # 平移向量 t
-
-u1, v1 = 320, 240  # 第一相机的像素坐标 (u1, v1)
-u2, v2 = 310, 250  # 第二相机的像素坐标 (u2, v2)
-
-# 相机内参矩阵
-K1 = np.array([[1000, 0, 320],  # 第一相机的内参矩阵
-               [0, 1000, 240],
-               [0, 0, 1]])
-
-K2 = np.array([[1000, 0, 320],  # 第二相机的内参矩阵
-               [0, 1000, 240],
-               [0, 0, 1]])
-
-# 计算 Z
-Z = Center_Distance(R, t, u1, v1, u2, v2, K1, K2)
-print("Center_Distance:", Z)
+    Z = []
+    uv_master = uv_list[0]
+    Kc_master = Kc_list[0]
+    for i, (CR, Ct, uv, Kc) in enumerate(zip(CR_list, Ct_list, uv_list, Kc_list)):
+        if i == 0: 
+            continue
+        else:
+            Z = Center_Distance(CR, Ct, uv_master, uv, Kc_master, Kc)
+    return sum(Z) / len(Z)

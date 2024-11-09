@@ -1,6 +1,5 @@
 import numpy as np
-import torchvision.transforms as transforms
-from custtomize_transform import RandomHolesRGB,RandomOcclusionRGB
+
 
 Kc_lmo = np.array([
     [572.4114, 0, 325.2611],  # 第一行: [fx, 0, cx]
@@ -9,6 +8,30 @@ Kc_lmo = np.array([
 ])
 
 Kc_lmo_inv = np.linalg.inv(Kc_lmo)
+
+
+
+
+Rc0 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+tc0 = np.array([0, 0, 0])
+
+Rc1 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+tc1 = np.array([0, 0, 0])
+
+Rc2 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+tc2 = np.array([0, 0, 0])
+
+Rc3 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+tc3 = np.array([0, 0, 0])
+
+views = {0:(Rc0,tc0), 1:(Rc1,tc1), 2:(Rc2,tc2), 3:(Rc3,tc3)}
+
+
+
+
+
+import torchvision.transforms as transforms
+from customized_transform import RandomHolesRGB,RandomOcclusionRGB
 
 SATRot_train_transform = transforms.Compose([
     transforms.Resize((128, 128)),
@@ -32,3 +55,4 @@ SATRot_test_transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406],     # 正则化
                         std=[0.229, 0.224, 0.225])
 ])
+

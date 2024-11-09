@@ -64,9 +64,11 @@ def test4bop(target_dir = 'datasets/lmo/test/000002', obj_id = 1, save_dir = 're
     for scene_id, img_id, obj_id, multiviews_cropimg, cropxyxy, uv_gt, R_gt, t_gt in test_loader:
         scene_id, img_id, obj_id, multiviews_cropimg, cropxyxy, uv_gt, R_gt, t_gt = scene_id.to(device), img_id.to(device), obj_id.to(device), half_diameter.to(device), minxyxy.to(device), rgb.to(device), mask.to(device), depth_img.to(device), t_gt.to(device), centerxyxy_gt.to(device), centeruv_gt.to(device), centercrop_gt.to(device), R_gt.to(device)
 
-
+        wei
         uv_preds, R_preds = R_net(multiviews_cropimg)
         R_preds = to_allo(R_preds,uv_preds)
+
+        uvpreds = (uv_preds[0]* + cropxyxy[0, 0:2], uv_preds[1] + cropxyxy[0, 2:4])
         
         R_pred = R_preds[0]# 转换成四元数求平均
         d_pred = Depth_From_Multiviews(CR_list , Ct_list, uv_list, Kc_list)

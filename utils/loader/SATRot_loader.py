@@ -12,8 +12,8 @@ import random
 class RotDataset(Dataset):
     def __init__(self, obj_id, target_dir, transform=None):
         self.obj_id = obj_id
-        self.rgb_dirs = [f'{target_dir}/view_{str(view_id).zfill(3)}/crop/' for view_id in views.keys]
-        self.gt_files = [f'{target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json' for view_id in views.keys]
+        self.rgb_dirs = [f'{target_dir}/view_{str(view_id).zfill(3)}/crop/' for view_id in views.keys()]
+        self.gt_files = [f'{target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json' for view_id in views.keys()]
         self.transform = transform
         self.items = []
 
@@ -54,7 +54,7 @@ class RotDataset(Dataset):
         if self.transform:
             rgb = self.transform(rgb)
 
-        uv = torch.tensor(uv, dtype=torch.float32)
+        uv = torch.tensor(uv, dtype=torch.float32).squeeze(0)
         R = torch.tensor(R, dtype=torch.float32)
         # t = torch.tensor(t, dtype=torch.float32)
         bbox = torch.tensor(bbox, dtype=torch.float32)
@@ -64,9 +64,9 @@ class RotDataset(Dataset):
         return rgb, uv, R, bbox
 
 # 定义数据加载函数
-def SATRot_loader(target_dirs, obj_id=1, transform=None, batch_size=32, shuffle=True, num_workers=8):
+def SATRot_loader(target_dir, obj_id=1, transform=None, batch_size=32, shuffle=True, num_workers=8):
     # 实例化自定义数据集
-    dataset = RotDataset(obj_id=obj_id, target_dirs=target_dirs, transform=transform)
+    dataset = RotDataset(obj_id=obj_id, target_dir=target_dir, transform=transform)
 
     # 创建 DataLoader
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
@@ -75,6 +75,6 @@ def SATRot_loader(target_dirs, obj_id=1, transform=None, batch_size=32, shuffle=
 
 # 示例调用
 if __name__ == '__main__':
-    target_dir = '../datasets/lmo/train/000001'# rgb 图像目录
+    target_dir = '../Datasets/lmo/train/000001'# rgb 图像目录
     # 获取数据加载器
     train_loader = SATRot_loader(target_dir)

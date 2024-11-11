@@ -11,15 +11,16 @@ from utils.loader.SATRot_loader import SATRot_loader
 from lib.SATRot import SATRot
 from utils.earlystop import EarlyStopping
 from lib.loss import criterion_R, criterion_uv
-from lib.config import Kc_lmo, Kc_lmo_inv, SATRot_train_transform, SATRot_test_transform
-from lib.to_allo import to_allo
+from lib.config import SATRot_train_transform, SATRot_test_transform
+from lib.config import Kc_lmo_inv_tensor as Kc_inv
+from lib.to_allo import get_allorot
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-
-model = SATRot(d_model = 240, nhead=4, num_layers=4, num_samples =10,).to(device)  # 将模型移到 GPU
+Kc_inv = Kc_inv.to(device)
+model = SATRot(d_model = 240, nhead=4, num_layers=4).to(device)  # 将模型移到 GPU
 optimizer = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-4)
 
 # Training loop
@@ -39,14 +40,19 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
     for epoch in range(num_epochs):
         R_trainloss = 0.0
         uv_trainloss = 0.0
-        for rgb_inputs, uv_gt, R_gt in tqdm(train_loader):
-            rgb_inputs, uv_gt, R_gt = rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device)  # 将数据移到 GPU
+        for rgb_inputs, uv_gt, R_gt, bbox_gt in tqdm(train_loader):
+            rgb_inputs, uv_gt, R_gt, bbox_gt = rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device), bbox_gt.to(device)  # 将数据移到 GPU
 
-            # print(rgb_inputs.shape)
+            w, h = bbox_gt[:, 2] - bbox_gt[:, 0], bbox_gt[:, 3] - bbox_gt[:, 1]
+
             optimizer.zero_grad()
             uv_pred, R_pred = model(rgb_inputs)
 
-            R_pred = to_allo(R_pred)
+            u_pred =(uv_pred[:, 0] * w + bbox_gt[:, 0]) # x坐标恢复
+            v_pred =(uv_pred[:, 1] * h + bbox_gt[:, 1]) # y坐标恢复
+
+            uv_pred = torch.cat([u_pred.unsqueeze(1),v_pred.unsqueeze(1)], dim=1)
+            R_pred = get_allorot(uv_pred, R_pred, Kc_inv)
 
             R_loss = criterion_R(R_pred, R_gt)
             uv_loss = criterion_uv(uv_pred, uv_gt)
@@ -66,12 +72,17 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
         uv_valloss = 0.0
         model.eval()  # Set the model to evaluation mode
         with torch.no_grad():  # Disable gradient calculation for validation
-            for rgb_inputs, uv_gt, R_gt in test_loader:
-                rgb_inputs, uv_gt, R_gt = rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device)
+            for rgb_inputs, uv_gt, R_gt, bbox_gt in tqdm(test_loader):
+                rgb_inputs, uv_gt, R_gt, bbox_gt = rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device), bbox_gt.to(device)  # 将数据移到 GPU
                 
+                w, h = bbox_gt[:, 2] - bbox_gt[:, 0], bbox_gt[:, 3] - bbox_gt[:, 1]
+                # print(rgb_inputs.shape)
+                optimizer.zero_grad()
                 uv_pred, R_pred = model(rgb_inputs)
-
-                R_pred = to_allo(R_pred)
+                u_pred =(uv_pred[:, 0] * w + bbox_gt[:, 0]) # x坐标恢复
+                v_pred =(uv_pred[:, 1] * h + bbox_gt[:, 1]) # y坐标恢复
+                uv_pred = torch.cat([u_pred.unsqueeze(1),v_pred.unsqueeze(1)], dim=1)
+                R_pred = get_allorot(uv_pred, R_pred, Kc_inv)
 
                 R_loss = criterion_R(R_pred, R_gt)
                 uv_loss = criterion_uv(uv_pred, uv_gt)
@@ -81,14 +92,14 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
         
         R_valloss /= len(test_loader.dataset)
         uv_valloss /= len(test_loader.dataset)
-        print(f"Epoch {epoch}/{num_epochs - 1}, ValR_loss: {R_valloss:.4f},Valuv_loss: {uv_valloss}")
+        print(f"Epoch {epoch}/{num_epochs - 1}, Val_R_loss: {R_valloss:.4f},Val_uv_loss: {uv_valloss}")
         
                 # 更新最佳模型
         if R_valloss < best_R_loss and uv_valloss < best_uv_loss:
             best_R_loss = R_valloss
             best_uv_loss = uv_valloss
             torch.save(model.state_dict(), best_model_path)
-            print(f"Saved new best model with ValR_loss: {R_valloss:.4f},Valuv_loss: {uv_valloss}")
+            print(f"Saved new best model with Val_R_loss: {R_valloss:.4f},Val_uv_loss: {uv_valloss}")
 
         # Check early stopping
         if R_early_stopping.check_early_stopping(R_valloss) and uv_early_stopping.check_early_stopping(uv_valloss):
@@ -102,10 +113,10 @@ def train_R(obj_ids):
     if obj_ids == None:
         obj_ids = [1,5,6,8,9,10,11,12]
     for obj_id in obj_ids:
-        train_target_dirs = [f'datasets/lmo/train/{str(obj_id).zfill(6)}', f'datasets/lm/{str(obj_id).zfill(6)}'] # RGB 图像目录
-        test_target_dirs = [f'datasets/lmo/test/000002']  # RGB 图像目录
-        train_loader = SATRot_loader(target_dirs = train_target_dirs, obj_id=obj_id, transform =SATRot_train_transform)
-        test_loader = SATRot_loader(target_dirs = test_target_dirs, obj_id=obj_id, transform =SATRot_test_transform)
+        train_target_dir = f'../Datasets/lm/{str(obj_id).zfill(6)}' # RGB 图像目录
+        test_target_dir = f'../Datasets/lmo/test/000002'  # RGB 图像目录
+        train_loader = SATRot_loader(target_dir = train_target_dir, obj_id=obj_id, transform =SATRot_train_transform)
+        test_loader = SATRot_loader(target_dir = test_target_dir, obj_id=obj_id, transform =SATRot_test_transform)
     
         # Train and val the model
         train_model(model, train_loader, test_loader, optimizer, num_epochs=45, save_path=f"weights/SATR_obj_{obj_id}.pth")
@@ -115,5 +126,5 @@ def train_R(obj_ids):
 
 
 if __name__ == "__main__":
-    obj_ids = [1,5,6,8,9,10,11,12]
+    obj_ids = [5,1,6,8,9,10,11,12]
     train_R(obj_ids)

@@ -6,7 +6,6 @@ import math
 import torchvision.models as models
 from torchvision.models import ResNet18_Weights,ResNet34_Weights
 
-
 class MultiScalePositionalEncoding(nn.Module):
     def __init__(self, d_model):
         """
@@ -20,7 +19,7 @@ class MultiScalePositionalEncoding(nn.Module):
         
         self.d_model = d_model
 
-    def forward(self, height, width):
+    def forward(self, height, width, window_sizes=[16, 64, 128]):
         """
         动态生成二维位置编码，相对于图片中心生成
         :param height: 图像的高度
@@ -36,10 +35,11 @@ class MultiScalePositionalEncoding(nn.Module):
         x_pos = torch.arange(width, dtype=torch.float32).unsqueeze(0).repeat(height, 1) - center_x
 
         # 初始化二维位置编码，分别对 y 和 x 进行编码
-        pe_y = torch.zeros(height, width, self.d_model // 2)
-        pe_x = torch.zeros(height, width, self.d_model // 2)
+        pe_y = torch.zeros(height, width, self.d_model // 3)
+        pe_x = torch.zeros(height, width, self.d_model // 3)
+        pe_w = torch.zeros(len(window_sizes), self.d_model // 3)
 
-        div_term = torch.exp(torch.arange(0, self.d_model // 2, 2).float() * -(math.log(10000.0) / (self.d_model // 2)))
+        div_term = torch.exp(torch.arange(0, self.d_model // 3, 2).float() * -(math.log(10000.0) / (self.d_model // 3)))
 
         # 对 y 方向进行正弦-余弦编码
         pe_y[:, :, 0::2] = torch.sin(y_pos.unsqueeze(-1) * div_term)  # 偶数索引使用 sin
@@ -49,225 +49,218 @@ class MultiScalePositionalEncoding(nn.Module):
         pe_x[:, :, 0::2] = torch.sin(x_pos.unsqueeze(-1) * div_term)
         pe_x[:, :, 1::2] = torch.cos(x_pos.unsqueeze(-1) * div_term)
 
+        # 对 window_size 进行正弦-余弦编码
+        for idx, w in enumerate(window_sizes):
+            pe_w[idx, 0::2] = torch.sin(w * div_term)  # 偶数索引使用 sin
+            pe_w[idx, 1::2] = torch.cos(w * div_term)  # 奇数索引使用 cos
 
         # 将 y 和 x 的编码结果合并，形成最终的二维位置编码
         pe = torch.cat([pe_y, pe_x], dim=-1)
 
+        # 为每个 window_size 生成独立的编码并加到 pe 中
+        pe = pe.unsqueeze(2).repeat(1, 1, len(window_sizes), 1)  # 复制编码为每个 window_size 使用
+        pe_w = pe_w.unsqueeze(0).unsqueeze(1).repeat(height, width, 1, 1)  # 扩展 window_size 的编码
+        pe = torch.cat([pe, pe_w], dim=-1)
+
         return pe
 
-class GlobalConvNet(nn.Module):
-    def __init__(self, d_model, origin_model=models.resnet34(weights=ResNet34_Weights.DEFAULT)):
-        super(GlobalConvNet, self).__init__()
-
-        # 直接使用原始模型，保存所需的层
-        self.forelayer = nn.Sequential(*list(origin_model.children())[:-4]) 
-        self.layer3 = origin_model.layer3  # 保存 layer3
-        self.layer4 = origin_model.layer4  # 保存 layer4
-        self.avgpool = origin_model.avgpool  # 保留平均池化层
-        self.fc = nn.Sequential(
-            nn.Linear(512, d_model)  # 线性层用于嵌入
-        )
-
-    def forward(self, x):
-        x = self.forelayer(x)  # 通过 layer1
-        feature_map = self.layer3(x)  # 获取 layer3 的特征图
-        x = self.layer4(feature_map)  # 通过 layer4
-
-        # 处理以生成嵌入
-        x = self.avgpool(x)  # 通过平均池化
-        x = torch.flatten(x, 1)  # 展平处理
-        embedding = self.fc(x)  # 通过全连接层生成嵌入
-
-        # 打印特征图和嵌入的形状
-        # # print(f'feature_map shape: {feature_map.shape}, embedding shape: {embedding.shape}')
-        return feature_map, embedding  # 返回 feature_map 和 embedding
-
-class LocalConvNet(nn.Module):
+class CustomConvNet(nn.Module):
     def __init__(self, d_model, origin_model=models.resnet18(weights=ResNet18_Weights.DEFAULT)):
-        super(LocalConvNet, self).__init__()
-        
-        # 保留 ResNet 的所有层，并访问 layer4 的输出
-        self.features = nn.Sequential(*list(origin_model.children())[:-1])  # 去掉最后的全连接层和池化层
+        # 修改第一层的卷积层，使其接受4个通道的输入
+        super(CustomConvNet, self).__init__()
+        self.features = nn.Sequential(
+            # nn.Conv2d(4, 64, kernel_size=5, stride=2, padding=3, bias=False),  # 修改输入通道为4
+            *list(origin_model.children())[0:-1]  # 保留 resnet 的其他层
+        )
         self.fc = nn.Sequential(
-            nn.Linear(512, d_model)  # 对于回归问题，输出 d_model 个连续值
+            nn.Linear(512, d_model)  # 对于回归问题，输出6个连续值
         )
 
     def forward(self, x):
-        x = self.features(x)  # 通过前面的层
-        # 最后全连接层处理
-        x = torch.flatten(x, 1)  # 根据需要对特征图进行展平处理
-        embedding = self.fc(x)
-        return embedding  # 返回 embedding 和 feature_map
-
-
-class Keypoints_extractor(nn.Module): 
-    def __init__(self, num_samples, feature_map_size = 256, temperature=0.1):
-        super(Keypoints_extractor, self).__init__()
-        self.num_samples = num_samples
-        self.temperature = temperature
-        # 学习显著性热力图生成器
-        self.saliency_conv = nn.Conv2d(feature_map_size, 1, kernel_size=3, padding=1)
-        
-    def forward(self, feature_maps):
-        """
-        生成显著性热力图并根据显著性选择关键点
-        :param feature_maps: CNN的特征图，形状为 (batch_size, channels, H, W)
-        :return: 关键点坐标 tensor，形状为 (batch_size, num_samples, 2)
-        """
-        batch_size, _, height, width = feature_maps.shape
-
-        # 生成显著性热力图并进行softmax归一化
-        saliency_map = self.saliency_conv(feature_maps)  # (batch_size, 1, H, W)
-        saliency_map = saliency_map.view(batch_size, -1)  # 展平为 (batch_size, H * W)
-        saliency_probs = F.softmax(saliency_map / self.temperature, dim=-1)  # 转换为概率分布
-
-        # 抽样num_samples个关键点
-        indices = torch.multinomial(saliency_probs, self.num_samples, replacement=True)  # (batch_size, num_samples)
-        
-        # 将平面索引转换为(y, x)坐标
-        keypoints_y = indices // width
-        keypoints_x = indices % width
-        keypoints = torch.stack([keypoints_y, keypoints_x], dim=-1)  # (batch_size, num_samples, 2)
-        
-        return keypoints
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
     
+
+    
+
 class SATRot(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, num_samples =10, window_size = 1):
+    def __init__(self, d_model, nhead, num_layers, num_samples =[1, 5, 10], window_sizes = [128, 64, 32]):
         super(SATRot, self).__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self.pos_encoder = MultiScalePositionalEncoding(d_model)
+        resnet_list = [models.resnet34(weights=ResNet34_Weights.DEFAULT),models.resnet18(weights=ResNet18_Weights.DEFAULT),models.resnet18(weights=ResNet18_Weights.DEFAULT)]
+        self.pos_encoder = MultiScalePositionalEncoding(d_model)
         self.num_samples = num_samples
-        self.window_size = window_size
-        self.position_embedding = nn.Embedding(8*8 + 1, d_model)
-        self.keypoint_extractor = Keypoints_extractor(self.num_samples)
-        self.global_extractor = GlobalConvNet(d_model, models.resnet34(weights=ResNet34_Weights.DEFAULT))
-        self.local_extractor = nn.ModuleList([
-                LocalConvNet(d_model,models.resnet18(weights=ResNet18_Weights.DEFAULT)) 
-                for _ in range(num_samples)  # 使用不同的 out_channels
+        self.window_sizes = window_sizes
+        self.extractor = nn.ModuleList([
+                CustomConvNet(d_model, origin_model) 
+                for origin_model in resnet_list  # 使用不同的 out_channels
             ])
                 # 定义可学习的采样坐标, (num_samples, 2) 代表 y 和 x 坐标
-
+        self.learnable_positions = nn.ParameterList([
+            nn.Parameter(torch.rand(num_samples[i], 2) * 128)  # 初始化为 (0, 128) 的随机值
+            for i in range(len(num_samples))
+        ])
         transformer_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True, dropout=0.1)
         self.transformer = nn.TransformerEncoder(transformer_layer, num_layers=num_layers)
         self.d_model = d_model
-        self.local_fc = nn.Sequential(
-            nn.Linear(256, 128),  # 第一层，减少维度
-            nn.Dropout(p=0.3),
-            nn.ReLU(),            # 激活函数
-            nn.Linear(128, d_model)  # 最终映射到 d_model
-        )
-        self.rot_fc = nn.Sequential(
+        self.fc_1 = nn.Sequential(
             nn.Linear(d_model, d_model),
+            nn.ReLU(),
             nn.Dropout(p=0.3),
+            nn.Linear(d_model, 3)  # 回归六个连续值
+        )        
+        self.fc_2 = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Dropout(p=0.3),
+            nn.Linear(d_model, 3)  # 回归六个连续值
+        )
+        self.R_fc = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.Dropout(p=0.5),
             nn.ReLU(),
             nn.Linear(d_model, 6)  # 回归六个连续值
         )
 
-        # self.pos_encoding = self.pos_encoder(8, 8).detach()
-        # self.pos_encoding = self.pos_encoding.to(device) 
+        self.uv_fc = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.Dropout(p=0.3),
+            nn.ReLU(),
+            nn.Linear(d_model, 2),  # 回归2个连续值
+            nn.Sigmoid()
+        )
+
+        self.pos_encoding = self.pos_encoder(128, 128, self.window_sizes).detach()
+        self.pos_encoding = self.pos_encoding.to(device) 
                 
 
 
-    def get_sample_pos_win(self, global_featuremap, num_samples, window_size=1):
+    def extract_and_sample_features(self, single_image, idx, window_size=16):
         """
-        从学习到的关键点采样窗口
-        :param global_featuremap: CNN的全局特征图
-        :param num_samples: 每个图像的采样关键点数量
-        :param window_size: 每个窗口的大小
-        :return: 采样窗口和关键点位置
+        只提取 A 通道非零点的位置和对应的 16x16 窗口卷积特征，并进行均匀采样。
+        :param rgb_image: 输入的 RGBA 图像 (batch_size, 4, H, W)
+        :param num_samples: 均匀采样的非零点数目
+        :param window_size: 16x16 的窗口大小
+        :return: 提取的非零点特征和对应的位置信息
         """
-        batch_size, _, height, width = global_featuremap.shape
-
-        # 利用 Keypoints_extractor 生成关键点位置
-        centerpixel_position = self.keypoint_extractor.forward(global_featuremap)
-
-        # 在每个关键点周围提取窗口
-        windows = []
+        H, W = single_image.shape[1], single_image.shape[2]
         half_window = window_size // 2
+        
+        learned_positions = self.learnable_positions[idx]
+        learned_positions = torch.clamp(learned_positions.round().long(), 0, H - 1)
+        
 
-        for i in range(batch_size):
-            batch_windows = []
-            for j in range(num_samples):
-                y, x = centerpixel_position[i, j]
-                
-                # 计算窗口边界并处理边缘情况
-                top = max(0, y - half_window)
-                bottom = min(height, y + half_window)
-                left = max(0, x - half_window)
-                right = min(width, x + half_window)
+        sampled_windows = []
+        sampled_positions = []
 
-                # 从特征图中裁剪窗口
-                window = global_featuremap[i, :, top:bottom, left:right]
-                
-                # 如果窗口大小不足，填充为一致大小
-                padded_window = F.pad(window, (0, window_size - window.shape[2], 0, window_size - window.shape[1]))
-                
-                batch_windows.append(padded_window)
+        # 对每个采样点建立 16x16 窗口并进行卷积
+        for pos in learned_positions:
+            y, x = pos[0], pos[1]
             
-            windows.append(torch.stack(batch_windows))  # 将每个关键点的窗口堆叠
+            # 确保窗口不会超出图像边界
+            y1, y2 = max(0, y - half_window), min(H, y + half_window)
+            x1, x2 = max(0, x - half_window), min(W, x + half_window)
+            
+            # 提取 16x16 窗口并进行卷积
+            window = single_image[:3, y1:y2, x1:x2]  # (1, 4, window_size, window_size)
+            if window.size(1) != window_size or window.size(2) != window_size:
+                # 如果窗口大小不足 16x16，则进行填充
+                pad = nn.ZeroPad2d((0, window_size - window.size(2), 0, window_size - window.size(1)))
+                window = pad(window)
+            # print(f'window: {window.shape}')
 
-        windows = torch.stack(windows)  # 形状: (batch_size, num_samples, channels, window_size, window_size)
+            sampled_windows.append(window)
+            pos_w = torch.cat([pos, torch.tensor([self.window_sizes.index(window_size)], device=pos.device)], dim=0)
+            sampled_positions.append(pos_w)
 
-        return windows, centerpixel_position
+        sampled_windows = torch.stack(sampled_windows, dim=0)  # (num_samples, d_model)
+        # print(f'sampled_windows: {sampled_windows.shape}')
+
+        sampled_positions = torch.stack(sampled_positions, dim=0)  # (num_samples, 3)
+        # print(f'sampled_features: {sampled_features.shape}, sampled_positions: {sampled_positions.shape}')
+
+
+        return sampled_positions, sampled_windows
 
     def forward(self, rgb_image):
         """
-        :param rgba_image: 输入的 RGBA 图像 (batch_size, 4, H, W)
+        :param rgb_image: 输入的 RGBA 图像 (batch_size, 4, H, W)
         :param num_samples: 均匀采样的非零点数目
         :return: 最终回归的六个连续值
         """
-        device = rgb_image.device
+        device = self.pos_encoding.device
+        # 提取 16x16 窗口卷积特征和对应的非零坐标
+        pixel_positions = []
+        features = []
+            
 
-        # 1、得到全局的特征图
-
-        global_featuremap, global_embeding = self.global_extractor(rgb_image)
-        global_embeding = global_embeding.unsqueeze(1)
-        # print(f'global_featuremap: {global_featuremap.shape}, global_embeding: {global_embeding.shape}')
-        
-        # 2、根据特征图找关键点
-
-        windows, centerpixel_position = self.get_sample_pos_win(global_featuremap, self.num_samples, self.window_size)
-        # print(f'windows: {windows.shape},centerpixel_position: {centerpixel_position.shape}')
-        # # print(f'centerpixel_position: {centerpixel_position}')
-        windows_feature = torch.squeeze(windows, dim=(-1, -2))
-        local_embeding = self.local_fc(windows_feature)
-        # print(f'local_embeding: {local_embeding.shape}')
-
-
-        # 4、计算位置编码
-        batch_size = global_embeding.shape[0]
-        x_coords = centerpixel_position[:, :, 0]  # 取出 x 坐标
-        y_coords = centerpixel_position[:, :, 1]  # 取出 y 坐标
-        position_indices = y_coords * 8 + x_coords +1
-        global_positional_features = self.position_embedding(torch.zeros(batch_size, dtype=torch.long, device=device)).unsqueeze(1)  # 全局为 0
-        position_indices = position_indices.clamp(0, self.num_samples - 1)  # 确保索引不越界
-        local_positional_features = self.position_embedding(position_indices)  # 通过嵌入层获取局部位置编码
-
-        # print(f'global_positional_features: {global_positional_features.shape}, local_positional_features: {local_positional_features.shape}')
+        for idx, (n_s, win) in enumerate(zip(self.num_samples, self.window_sizes)):
+            pixel_position = []
+            window = []
+            for i in range(rgb_image.size(0)):
+                
+                pixel_position_certainsize, window_certainsize = self.extract_and_sample_features(rgb_image[i], idx, win)
+                pixel_position.append(pixel_position_certainsize)
+                window.append(window_certainsize)
+                # print(f'pixel_position_certainsize:{pixel_position_certainsize.shape}')
+                # print(f'window_certainsize:{window_certainsize.shape}')
+            pixel_position = torch.stack(pixel_position)
+            window = torch.cat(window,dim=0)
+            
+            # print(f'pixel_position:{pixel_position.shape}')
+            # print(f'window:{window.shape}')
+            feature = self.extractor[idx](window)
+            # print(f'feature:{feature.shape}')
+            feature = feature.view(rgb_image.size(0), n_s, -1)
+            # print(f'feature_sorted:{feature.shape}')
 
 
-        global_sequence = global_positional_features + global_embeding
-        # print(f'global_sequence: {global_sequence.shape}')
-        local_sequence = local_positional_features + local_embeding
-        # print(f'local_sequence: {local_sequence.shape}')
-        input_sequence = torch.cat([global_sequence, local_sequence], dim=1)
+
+            pixel_positions.append(pixel_position)
+            features.append(feature)
+
+        pixel_positions = torch.cat(pixel_positions, dim=1)  # Stack along dim 1
+        features = torch.cat(features, dim=1)  # Stack along dim 1
+
+        # print(f'Stacked pixel_positions: {pixel_positions.shape}')
+        # print(f'Stacked features: {features.shape}')
+
+        # print(f'device:{device}')
+        # print(f'features:{features.device}')
+        # print(f'pixel_positions:{pixel_positions.device}')
+        # print(f'pos_encoding:{self.pos_encoding.device}')
+
+
+        # 根据像素位置提取对应的 Positional Encoding
+        positional_features = self.pos_encoding[pixel_positions[:, :, 0], pixel_positions[:, :, 1], pixel_positions[:, :, 2]] # (batch_size, num_samples, d_model)
+        # print(f'positional_features: {positional_features.shape}')
+        # print(f'features: {features.shape}')
+        # 将卷积提取的特征和位置编码相加
+        input_sequence = features + positional_features
         # print(f'input_sequence: {input_sequence.shape}')
-
 
         # 通过 Transformer 模型
         transformer_output = self.transformer(input_sequence)
 
+        # 最终通过全连接层得到回归的六个连续值
+        # x1 = self.fc_1(transformer_output.mean(dim=1))
+        # x2 = self.fc_2(transformer_output.mean(dim=1))
+        r = self.R_fc(transformer_output.mean(dim=1))
+        r1, r2 = r[:, :3], r[:, 3:]
 
-        x = self.rot_fc(transformer_output.mean(dim=1))
-        x1, x2 = x[:, :3], x[:, 3:]
+        r2 = r2 - torch.sum(r1 * r2, dim=1, keepdim=True) * r1
+        r3 = torch.cross(r1, r2, dim=1)
+        r1 = F.normalize(r1, p=2, dim=1)  # 归一化到单位向量
+        r2 = F.normalize(r2, p=2, dim=1)  # 归一化到单位向量
+        r3 = F.normalize(r3, p=2, dim=1)  # 归一化到单位向量
+        R = torch.cat([r1 , r2, r3], dim=1)
 
-        x2 = x2 - torch.sum(x1 * x2, dim=1, keepdim=True) * x1
-        x3 = torch.cross(x1, x2, dim=1)
-        x1 = F.normalize(x1, p=2, dim=1)  # 归一化到单位向量
-        x2 = F.normalize(x2, p=2, dim=1)  # 归一化到单位向量
-        x3 = F.normalize(x3, p=2, dim=1)  # 归一化到单位向量
-        x = torch.cat([x1 , x2, x3], dim=1)
-        return x
+        uv = self.uv_fc(transformer_output.mean(dim=1))
+
+
+        return uv, R
 
 
 # Example usage
@@ -278,7 +271,7 @@ if __name__ == '__main__':
     batch_size = 4
     height = 128
     width = 128
-    rgba_image = torch.randn(batch_size, 3, height, width).to(device)  # 随机生成的 RGBA 图像
+    rgb_image = torch.randn(batch_size, 4, height, width).to(device)  # 随机生成的 RGBA 图像
     # 初始化 Transformer 模型
     d_model = 60
     nhead = 4
@@ -288,6 +281,6 @@ if __name__ == '__main__':
 
     # 将 RGBA 图像传入 Transformer，进行均匀采样并得到回归结果
     num_samples = 128
-    predicted_output = model(rgba_image)
+    predicted_output = model(rgb_image)
 
     print(predicted_output)  # 打印回归的六个连续值

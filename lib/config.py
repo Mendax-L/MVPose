@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 
 Kc_lmo = np.array([
@@ -9,7 +10,8 @@ Kc_lmo = np.array([
 
 Kc_lmo_inv = np.linalg.inv(Kc_lmo)
 
-
+Kc_lmo_tensor = torch.tensor(Kc_lmo, dtype=torch.float32)
+Kc_lmo_inv_tensor = torch.tensor(Kc_lmo_inv, dtype=torch.float32)
 
 
 Rc0 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
@@ -34,7 +36,7 @@ views = {0:(Rc0,tc0), 1:(Rc1,tc1), 2:(Rc2,tc2), 3:(Rc3,tc3)}
 
 
 import torchvision.transforms as transforms
-from customized_transform import RandomHolesRGB,RandomOcclusionRGB
+from lib.customized_transform import RandomHolesRGB,RandomOcclusionRGB
 
 SATRot_train_transform = transforms.Compose([
     transforms.Resize((128, 128)),

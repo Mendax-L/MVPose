@@ -13,16 +13,19 @@ Kc_lmo_inv = np.linalg.inv(Kc_lmo)
 
 
 Rc0 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-tc0 = np.array([0, 0, 0])
+tc0 = np.array([80, 0, 0])
 
 Rc1 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-tc1 = np.array([0, 0, 0])
+tc1 = np.array([0, 80, 0])
 
 Rc2 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-tc2 = np.array([0, 0, 0])
+tc2 = np.array([0, 0, 80])
 
 Rc3 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-tc3 = np.array([0, 0, 0])
+tc3 = np.array([-80, 0, 0])
+
+# Rc4 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+# tc4 = np.array([0, -80, 0])
 
 views = {0:(Rc0,tc0), 1:(Rc1,tc1), 2:(Rc2,tc2), 3:(Rc3,tc3)}
 

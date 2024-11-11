@@ -9,10 +9,10 @@ from config import views
 
 # 确认当前工作目录
 print(f"当前工作目录: {os.getcwd()}")
-# obj_ids = [1,5,6,8,9,10,11,12]
+obj_ids = [1,5,6,8,9,10,11,12]
 obj_id = 12
-target_dir = f'../Datasets/lm/{str(obj_id).zfill(6)}'
-# target_dir = f'../Datasets/lmo/test/000002'
+# target_dir = f'../Datasets/lm/{str(obj_id).zfill(6)}'
+target_dir = f'../Datasets/lmo/test/000002'
 # target_dir = '/home/mendax/project/SATPose/datasets/lmo/pbr/bop_data/lmo/train_pbr/000000'
 model_dir = f"../Datasets/lmo/models"
 
@@ -58,12 +58,12 @@ img_h = 480
 
 for view_id, (Rc, tc) in views.items():
     for img_id, objs in scene_gt.items():
-        # if img_id not in grouped_by_im_id:
-        #    continue
+        if img_id not in grouped_by_im_id:
+           continue
         for idx, obj in enumerate(objs):
             obj_id = obj['obj_id']
-            # if obj_id not in grouped_by_im_id[img_id]:
-            #     continue
+            if obj_id not in grouped_by_im_id[img_id]:
+                continue
             img_id = str(img_id)  # 确保键是字符串
             cam_data = scene_camera[img_id]
             gt_data = scene_gt[img_id][idx]  # 假设每个视图中只有一个物体
@@ -153,7 +153,9 @@ for view_id, (Rc, tc) in views.items():
             results.append(obj_info)
 
     # 将结果保存为 JSON 文件
-    with open(f'{target_dir}/view{view_id}_info.json', 'w') as f_out:
+    view_dir_path = os.path.join(target_dir, f'view_{str(view_id).zfill(3)}')
+    os.makedirs(view_dir_path, exist_ok=True)  
+    with open(f'{view_dir_path}/view_{str(view_id).zfill(3)}_info.json', 'w') as f_out:
         json.dump(results, f_out, indent=4)
 
-    print(f"新视角物体位姿相关信息已成功计算并保存至 {target_dir}/view{view_id}_info.json")
+    print(f"新视角物体位姿相关信息已成功计算并保存至 {target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json")

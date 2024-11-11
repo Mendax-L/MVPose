@@ -5,14 +5,15 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
+from lib.config import SATRot_test_transform, views
 import random
 
 # 自定义 Dataset 类
 class RotDataset(Dataset):
-    def __init__(self, obj_id, target_dirs, transform=None):
+    def __init__(self, obj_id, target_dir, transform=None):
         self.obj_id = obj_id
-        self.rgb_dirs = [f'{dir}/centercrop/' for dir in target_dirs]
-        self.gt_files = [f'{dir}/object_info.json' for dir in target_dirs]
+        self.rgb_dirs = [f'{target_dir}/view_{str(view_id).zfill(3)}/crop/' for view_id in views.keys]
+        self.gt_files = [f'{target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json' for view_id in views.keys]
         self.transform = transform
         self.items = []
 
@@ -24,12 +25,7 @@ class RotDataset(Dataset):
                     self.items.append((rgb_dir, data))
 
         if self.transform is None:
-            self.transform = transforms.Compose([
-                transforms.Resize((128, 128)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            ])
+            self.transform = SATRot_test_transform
 
     # 加载中心点数据
     def _load_gt(self, gt_file):
@@ -45,37 +41,30 @@ class RotDataset(Dataset):
         rgb_dir, item = self.items[idx]
         img_id = item['img_id']
         obj_idx = item['idx']
-        # squarexyxy = item['squarexyxy']
-        centerxyxy = item['centerxyxy']
-        u_relative, v_relative = item['u_relative'], item['v_relative']
+        bbox = item['bbox']
+        uv = np.array([item["uv"]]) 
+        uv_relative = item['uv_relative']
+        R = item['R']
+        # t = item['t']
 
         img_name = f"{str(img_id).zfill(6)}_{str(obj_idx).zfill(6)}.png"
         img_file = os.path.join(rgb_dir, img_name)
 
-        uv_gt = np.array([item["u"], item["v"]]) 
-        uv_gt = torch.tensor(uv_gt, dtype=torch.float32)
-
-        t_gt = torch.tensor(item["cam_t_m2c"], dtype=torch.float32)
-
-        # 1. 加载 rgb 图像
-        rgb_img = Image.open(img_file)
+        rgb = Image.open(img_file)
         if self.transform:
-            rgb_img = self.transform(rgb_img)
-        
-        # 2. 获取旋转矩阵并提取前两列
-        # size = torch.tensor((squarexyxy[2] - squarexyxy[0]), dtype=torch.float32).unsqueeze(0)
+            rgb = self.transform(rgb)
 
-        rot_mat = np.array(item["cam_R_m2c"])
-        rot_tensor = torch.tensor(rot_mat, dtype=torch.float32)
-        # squarexyxy = torch.tensor(squarexyxy, dtype=torch.float32)
-        centerxyxy = torch.tensor(centerxyxy, dtype=torch.float32)
-        uv_relative = torch.tensor((u_relative, v_relative), dtype=torch.float32)
+        uv = torch.tensor(uv, dtype=torch.float32)
+        R = torch.tensor(R, dtype=torch.float32)
+        # t = torch.tensor(t, dtype=torch.float32)
+        bbox = torch.tensor(bbox, dtype=torch.float32)
+        # uv_relative = torch.tensor(uv_relative, dtype=torch.float32)
 
 
-        return rgb_img,uv_gt, rot_tensor
+        return rgb, uv, R, bbox
 
 # 定义数据加载函数
-def get_rot_dataloader(target_dirs, obj_id=1, transform=None, batch_size=32, shuffle=True, num_workers=8):
+def SATRot_loader(target_dirs, obj_id=1, transform=None, batch_size=32, shuffle=True, num_workers=8):
     # 实例化自定义数据集
     dataset = RotDataset(obj_id=obj_id, target_dirs=target_dirs, transform=transform)
 
@@ -86,6 +75,6 @@ def get_rot_dataloader(target_dirs, obj_id=1, transform=None, batch_size=32, shu
 
 # 示例调用
 if __name__ == '__main__':
-    target_dirs = ['../datasets/lmo/train/000001', '../datasets/lmo/train/000002']  # rgb 图像目录
+    target_dir = '../datasets/lmo/train/000001'# rgb 图像目录
     # 获取数据加载器
-    train_loader = get_pose_dataloader(target_dirs)
+    train_loader = SATRot_loader(target_dir)

@@ -34,7 +34,7 @@ class RandomHolesRGB:
         return img
     
 class RandomOcclusionRGB:
-    def __init__(self, p=0.6, occlusion_size=(0.2, 0.5)):
+    def __init__(self, p=0.6, occlusion_size=(0.2, 0.4)):
         """
         p: 应用遮挡的概率
         occlusion_size: 遮挡区域占图像比例的范围 (最小比例, 最大比例)

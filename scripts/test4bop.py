@@ -11,7 +11,7 @@ import time
 import numpy as np
 import torch
 from torchvision import transforms
-from lib.SATRot import SATRot
+from lib.SATRotv2 import SATRot
 from utils.loader.test_dataloader import get_test_dataloader
 
 

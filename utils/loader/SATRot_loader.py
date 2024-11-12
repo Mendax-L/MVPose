@@ -2,7 +2,7 @@ import os
 import json
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
 from PIL import Image
 from lib.config import SATRot_test_transform, views
@@ -10,7 +10,7 @@ import random
 
 # 自定义 Dataset 类
 class RotDataset(Dataset):
-    def __init__(self, obj_id, target_dir, transform=None):
+    def __init__(self, obj_id, target_dir, transform=None, sample_ratio=1):
         self.obj_id = obj_id
         self.rgb_dirs = [f'{target_dir}/view_{str(view_id).zfill(3)}/crop/' for view_id in views.keys()]
         self.gt_files = [f'{target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json' for view_id in views.keys()]
@@ -23,6 +23,10 @@ class RotDataset(Dataset):
             for data in gt:
                 if data["obj_id"] == self.obj_id:
                     self.items.append((rgb_dir, data))
+
+        if sample_ratio < 1.0:
+            sample_size = int(len(self.items) * sample_ratio)
+            self.items = random.sample(self.items, sample_size)
 
         if self.transform is None:
             self.transform = SATRot_test_transform
@@ -64,14 +68,27 @@ class RotDataset(Dataset):
         return rgb, uv, R, bbox
 
 # 定义数据加载函数
-def SATRot_loader(target_dir, obj_id=1, transform=None, batch_size=32, shuffle=True, num_workers=8):
+def SATRot_loader(target_dir,obj_id=1, transform=None, batch_size=32, shuffle=True, num_workers=16, split_ratio=None):
     # 实例化自定义数据集
     dataset = RotDataset(obj_id=obj_id, target_dir=target_dir, transform=transform)
 
-    # 创建 DataLoader
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    if split_ratio is None:
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        return dataloader
+    else:
+        train_size = int(len(dataset) * split_ratio)
+        test_size = len(dataset) - train_size
 
-    return dataloader
+        # 使用 random_split 划分数据集
+        train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+        # 创建 DataLoader
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        # 创建 DataLoader
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+
+        return train_loader,test_loader
 
 # 示例调用
 if __name__ == '__main__':

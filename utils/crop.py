@@ -81,12 +81,13 @@ def crop_and_save(image, crop_area, output_dir, filename):
     cropped_image.save(output_path) 
 
 # 函数生成中心点数据并保存裁剪图像
-def process_view(target_dir, view_id):
+def process_view(scene_id, view_id):
+    target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
     newview_rgb_dir_path = f"{target_dir}/view_{str(view_id).zfill(3)}/rgb"
-    crop_dir_path = f"{target_dir}/view_{str(view_id).zfill(3)}/crop"
-    if not os.path.exists(newview_rgb_dir_path):
-        os.makedirs(newview_rgb_dir_path)
-        print(f"目录 {newview_rgb_dir_path} 已创建。")
+    crop_dir_path = f"/mnt/newdisk/ycbv/train_real/{str(scene_id).zfill(6)}/view_{str(view_id).zfill(3)}/crop"
+    # if not os.path.exists(newview_rgb_dir_path):
+    #     os.makedirs(newview_rgb_dir_path)
+    #     print(f"目录 {newview_rgb_dir_path} 已创建。")
     if not os.path.exists(crop_dir_path):
         os.makedirs(crop_dir_path)
         print(f"目录 {crop_dir_path} 已创建。")
@@ -120,45 +121,55 @@ def process_view(target_dir, view_id):
 
 
         rgb = Image.open(rgb_path)
-        depth = Image.open(depth_path)
+        # depth = Image.open(depth_path)
 
-        Rc = np.array(Rc)  # 转换为 (N, 3, 3)
-        tc = np.array(tc) 
-        Rc_inv = np.linalg.inv(Rc)
+        # Rc = np.array(Rc)  # 转换为 (N, 3, 3)
+        # tc = np.array(tc) 
+        # Rc_inv = np.linalg.inv(Rc)
 
-        rgb_np, depth_np = np.array(rgb), np.array(depth)
-        points, colors = generate_point_cloud(rgb_np, depth_np, Kc)
-        new_points = project_points(points, Rc_inv, tc)
-        new_image = render_image(new_points, colors, rgb_np.shape[:2],Kc)
-        newview = Image.fromarray(new_image)
+        # rgb_np, depth_np = np.array(rgb), np.array(depth)
+        # points, colors = generate_point_cloud(rgb_np, depth_np, Kc)
+        # new_points = project_points(points, Rc_inv, tc)
+        # new_image = render_image(new_points, colors, rgb_np.shape[:2],Kc)
+        # newview = Image.fromarray(new_image)
+
         # newview = draw_uv_points(newview, uv) #验证中心点的位置
-        newview.save(newview_path_path)
+        # newview.save(newview_path_path)
 
-        newviewcrop = newview.crop(bbox)
+        newviewcrop = rgb.crop(bbox)
         img_w, img_h = newviewcrop.size
         uv_relative = (uv_relative[0]*img_w, uv_relative[1]*img_h)
         # newviewcrop = draw_uv_points(newviewcrop, uv_relative, color=(0, 255, 0))  # 绿色表示 uv_relative
         newviewcrop.save(crop_path)
 
-def crop_parallel(target_dir, view_num=4):
+def crop_parallel(scene_ids, view_num=4):
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        futures = [executor.submit(process_view, target_dir, view_id) for view_id in range(view_num)]
+        futures = [executor.submit(process_view, scene_id, view_id=0) for scene_id in scene_ids]
         for future in concurrent.futures.as_completed(futures):
             future.result() 
+            print('finish one')
+    print(f"finish {scene_ids}")
 
 if __name__ == "__main__":
     # target_dir = f'datasets/lmo/test/000002'
     # crop(target_dir)
     # target_dir = '/home/mendax/project/SATPose/datasets/lmo/pbr/bop_data/lmo/train_pbr/000000'
     # crop(target_dir)
-    obj_ids = [5,6,8,9,10,11,12]
-    view_num = 4
-    for obj_id in obj_ids:
-        target_dir = f'../Datasets/lm/{str(obj_id).zfill(6)}'  # RGB 图像目录
-        # target_dir = f'../Datasets/lmo/test/000002'  # RGB 图像目录
-        # target_dir = '/home/mendax/project/Datasets/lmo/pbr/bop_data/lmo/train_pbr/000000'
-        crop_parallel(target_dir,view_num)
+    view_num = 1
+    scene_ids = []
+    for scene_id in range(0, 92):
+        target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
+        if os.path.exists(target_dir):
+            scene_ids.append(scene_id)
+        else:
+            print(f"{target_dir} does not exist.")
+    crop_parallel(scene_ids, view_num)
+    # for obj_id in obj_ids:
+    #     target_dir = f'../Datasets/lm/{str(obj_id).zfill(6)}'  # RGB 图像目录
+    #     # target_dir = f'../Datasets/lmo/test/000002'  # RGB 图像目录
+    #     # target_dir = '/home/mendax/project/Datasets/lmo/pbr/bop_data/lmo/train_pbr/000000'
+    #     crop_parallel(target_dir,view_num)
 
-    target_dir = f'../Datasets/lmo/test/000002'  # RGB 图像目录
-    crop_parallel(target_dir,view_num)
+    # target_dir = f'../Datasets/lmo/test/000002'  # RGB 图像目录
+    # crop_parallel(target_dir,view_num)
 

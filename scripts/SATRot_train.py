@@ -14,6 +14,7 @@ from lib.loss import criterion_R, criterion_uv
 from lib.config import SATRot_train_transform, SATRot_test_transform
 from lib.config import Kc_lmo_inv_tensor as Kc_inv
 from lib.to_allo import get_allorot
+import torchvision.transforms as transforms
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,7 +28,6 @@ optimizer = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-4)
 def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save_path="model.pth"):
     R_early_stopping = EarlyStopping(patience=5, min_delta=0.02)
     uv_early_stopping = EarlyStopping(patience=5, min_delta=0.02)
-    model.train()
     # 初始化验证损失最小值为正无穷
     best_R_loss = float("inf")
     best_uv_loss = float("inf")
@@ -38,10 +38,17 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
     
     # for epoch in range(num_epochs):
     for epoch in range(num_epochs):
+        model.train()
         R_trainloss = 0.0
         uv_trainloss = 0.0
         for rgb_inputs, uv_gt, R_gt, bbox_gt in tqdm(train_loader):
             rgb_inputs, uv_gt, R_gt, bbox_gt = rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device), bbox_gt.to(device)  # 将数据移到 GPU
+            
+            rgb_sample = rgb_inputs[0]
+            # 再将其映射到 [0, 255]
+            transform = transforms.ToPILImage()
+            img = transform(rgb_sample)
+            img.save(f"visib/lm_rgb/rgb_image.png")
 
             w, h = bbox_gt[:, 2] - bbox_gt[:, 0], bbox_gt[:, 3] - bbox_gt[:, 1]
 
@@ -75,6 +82,14 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
             for rgb_inputs, uv_gt, R_gt, bbox_gt in tqdm(test_loader):
                 rgb_inputs, uv_gt, R_gt, bbox_gt = rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device), bbox_gt.to(device)  # 将数据移到 GPU
                 
+
+                rgb_sample = rgb_inputs[0]
+                # 再将其映射到 [0, 255]
+                transform = transforms.ToPILImage()
+                img = transform(rgb_sample)
+                img.save(f"visib/lmo_rgb/rgb_image.png")
+
+
                 w, h = bbox_gt[:, 2] - bbox_gt[:, 0], bbox_gt[:, 3] - bbox_gt[:, 1]
                 # print(rgb_inputs.shape)
                 optimizer.zero_grad()
@@ -115,8 +130,9 @@ def train_R(obj_ids):
     for obj_id in obj_ids:
         train_target_dir = f'../Datasets/lm/{str(obj_id).zfill(6)}' # RGB 图像目录
         test_target_dir = f'../Datasets/lmo/test/000002'  # RGB 图像目录
-        train_loader = SATRot_loader(target_dir = train_target_dir, obj_id=obj_id, transform =SATRot_train_transform)
-        test_loader = SATRot_loader(target_dir = test_target_dir, obj_id=obj_id, transform =SATRot_test_transform)
+        train_loader,test_loader = SATRot_loader(target_dir = test_target_dir, obj_id=obj_id, transform =SATRot_train_transform,split_ratio=0.5)
+        # train_loader = SATRot_loader(target_dir = train_target_dir, obj_id=obj_id, transform =SATRot_train_transform)
+        # test_loader = SATRot_loader(target_dir = test_target_dir, obj_id=obj_id, transform =SATRot_test_transform)
     
         # Train and val the model
         train_model(model, train_loader, test_loader, optimizer, num_epochs=45, save_path=f"weights/SATR_obj_{obj_id}.pth")
@@ -126,5 +142,5 @@ def train_R(obj_ids):
 
 
 if __name__ == "__main__":
-    obj_ids = [5,1,6,8,9,10,11,12]
+    obj_ids = [1,5,6,8,9,10,11,12]
     train_R(obj_ids)

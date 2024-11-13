@@ -11,6 +11,19 @@ import matplotlib.pyplot as plt
 # 切换到脚本所在的目录
 # script_dir = os.path.dirname(os.path.abspath(__file__))
 # os.chdir(script_dir)
+def apply_mask_to_rgb(rgb, mask):
+    r, g, b = rgb.split()
+    # 将 mask 转换为二进制掩码，以确保只有 0 和 255 值
+    binary_mask = mask.point(lambda p: p > 0 and 255)
+    
+    # 将 R、G、B 通道中 mask 为 0 的区域设置为 0
+    r = Image.composite(r, Image.new("L", r.size, 0), binary_mask)
+    g = Image.composite(g, Image.new("L", g.size, 0), binary_mask)
+    b = Image.composite(b, Image.new("L", b.size, 0), binary_mask)
+
+    # 合并 R、G、B 通道和 mask 通道为一个四通道图像
+    rgb = Image.merge("RGB", (r, g, b))
+    return rgb
 
 def draw_uv_points(image, uv_point, color=(255, 0, 0), radius=3):
     """
@@ -84,7 +97,7 @@ def crop_and_save(image, crop_area, output_dir, filename):
 def process_view(scene_id, view_id):
     target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
     newview_rgb_dir_path = f"{target_dir}/view_{str(view_id).zfill(3)}/rgb"
-    crop_dir_path = f"/mnt/newdisk/ycbv/train_real/{str(scene_id).zfill(6)}/view_{str(view_id).zfill(3)}/crop"
+    crop_dir_path = f"../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}/view_{str(view_id).zfill(3)}/crop"
     # if not os.path.exists(newview_rgb_dir_path):
     #     os.makedirs(newview_rgb_dir_path)
     #     print(f"目录 {newview_rgb_dir_path} 已创建。")
@@ -113,6 +126,7 @@ def process_view(scene_id, view_id):
         
         # 加载 RGB 图像
         rgb_path = f"{target_dir}/rgb/{str(img_id).zfill(6)}.png"
+        mask_path = f"{target_dir}/mask_visib/{str(img_id).zfill(6)}_{str(obj_idx).zfill(6)}.png"
         depth_path = f"{target_dir}/depth/{str(img_id).zfill(6)}.png"
         # 新视角与裁剪图像存储位置
         newview_path_path = f"{newview_rgb_dir_path}/{str(img_id).zfill(6)}.png"
@@ -121,6 +135,9 @@ def process_view(scene_id, view_id):
 
 
         rgb = Image.open(rgb_path)
+        mask = Image.open(mask_path)
+        masked_rgb = apply_mask_to_rgb(rgb, mask)
+
         # depth = Image.open(depth_path)
 
         # Rc = np.array(Rc)  # 转换为 (N, 3, 3)
@@ -136,7 +153,7 @@ def process_view(scene_id, view_id):
         # newview = draw_uv_points(newview, uv) #验证中心点的位置
         # newview.save(newview_path_path)
 
-        newviewcrop = rgb.crop(bbox)
+        newviewcrop = masked_rgb.crop(bbox)
         img_w, img_h = newviewcrop.size
         uv_relative = (uv_relative[0]*img_w, uv_relative[1]*img_h)
         # newviewcrop = draw_uv_points(newviewcrop, uv_relative, color=(0, 255, 0))  # 绿色表示 uv_relative

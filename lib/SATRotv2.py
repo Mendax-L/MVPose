@@ -29,11 +29,11 @@ class MultiScalePositionalEncoding(nn.Module):
         :return: 对应 (height, width) 的二维位置编码矩阵，大小为 (height, width, d_model)
         """
         # 获取图像中心的坐标
-        center_y, center_x = height // 2, width // 2
+        # center_y, center_x = height // 2, width // 2
 
         # 创建每个像素相对于中心位置的 (y, x) 网格
-        y_pos = torch.arange(height, dtype=torch.float32).unsqueeze(1).repeat(1, width) - center_y
-        x_pos = torch.arange(width, dtype=torch.float32).unsqueeze(0).repeat(height, 1) - center_x
+        y_pos = torch.arange(height, dtype=torch.float32).unsqueeze(1).repeat(1, width)
+        x_pos = torch.arange(width, dtype=torch.float32).unsqueeze(0).repeat(height, 1)
 
         # 初始化二维位置编码，分别对 y 和 x 进行编码
         pe_y = torch.zeros(height, width, self.d_model // 2)
@@ -132,7 +132,7 @@ class Keypoints_extractor(nn.Module):
         return keypoints
     
 class SATRotv2(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, num_samples =10, window_size = 1):
+    def __init__(self, d_model, nhead, num_layers, num_samples =20, window_size = 1):
         super(SATRotv2, self).__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self.pos_encoder = MultiScalePositionalEncoding(d_model)
@@ -257,7 +257,7 @@ class SATRotv2(nn.Module):
         # print(f'global_sequence: {global_sequence.shape}')
         local_sequence = local_positional_features + local_embeding
         # print(f'local_sequence: {local_sequence.shape}')
-        input_sequence = torch.cat([global_sequence, local_sequence], dim=1)
+        input_sequence = torch.cat([global_sequence, local_sequence, global_sequence], dim=1)
         # print(f'input_sequence: {input_sequence.shape}')
 
 

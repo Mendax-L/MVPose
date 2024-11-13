@@ -65,6 +65,7 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                 Kc = np.array(cam_data['cam_K']).reshape(3, 3)
                 fx, fy = Kc[0, 0], Kc[1, 1]
                 cx, cy = Kc[0, 2], Kc[1, 2]
+                Kc_inv = np.linalg.inv(Kc)
 
                 # 获取平移向量 cam_t_m2c 和物体的 ID
                 if np.array(gt_data['obj_id'])!= obj_id:
@@ -121,7 +122,8 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                         't': t,
                         'scene_id': scene_id,
                         'diameter': diameter,
-                        'Kc':Kc.tolist()
+                        'Kc': Kc.tolist(),
+                        'Kc_inv': Kc_inv.tolist()
                     }
                 else:
                     obj_info = {
@@ -139,6 +141,7 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                         'scene_id': scene_id,
                         'diameter': diameter,
                         'Kc':Kc.tolist(),
+                        'Kc_inv': Kc_inv.tolist(),
                         'note': 'center outside image bounds'
                     }
 
@@ -146,19 +149,19 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                 results.append(obj_info)
 
         # 将结果保存为 JSON 文件
-        view_dir_path = os.path.join(f"/mnt/newdisk/ycbv/train_real/{str(scene_id).zfill(6)}", f'view_{str(view_id).zfill(3)}')
+        view_dir_path = os.path.join(target_dir, f'view_{str(view_id).zfill(3)}')
         os.makedirs(view_dir_path, exist_ok=True)  
         with open(f'{view_dir_path}/view_{str(view_id).zfill(3)}_info.json', 'w') as f_out:
             json.dump(results, f_out, indent=4)
 
-        print(f"新视角物体位姿相关信息已成功计算并保存至 {target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json")
+        print(f"新视角物体位姿相关信息已成功计算并保存至 {view_dir_path}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json")
 
 if __name__ == '__main__':
         
 
     model_dir = f"../Datasets/ycbv/models/"
     for scene_id in range(0, 92):
-        target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
+        target_dir = f'../Datasets/ycbv/test/{str(scene_id).zfill(6)}'
         if os.path.exists(target_dir):
             generate_view_info(target_dir = target_dir, scene_id = scene_id)
         else:

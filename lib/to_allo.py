@@ -5,8 +5,10 @@ def get_allorot(centeruv, rot_pred, Kc_inv):
     device = centeruv.device
     centeruv_3d = torch.cat([centeruv, torch.ones((centeruv.shape[0],1)).to(device)], dim=1)
     p = torch.tensor([0, 0, 1], dtype=torch.float32).repeat(centeruv.shape[0], 1).to(device)
-    # print(f'p:{p.shape}')           
-    q = torch.matmul(Kc_inv, centeruv_3d.T).T
+    # print(f'p:{p.shape}')   
+    # print(f'centeruv_3d:{centeruv_3d.shape}')        
+    # print(f'Kc_inv:{Kc_inv.shape}')        
+    q = torch.matmul(Kc_inv, centeruv_3d.unsqueeze(-1)).squeeze(-1)
     # print(f'q:{q.shape}')
 
     Rc=psi_tensor(p, q)

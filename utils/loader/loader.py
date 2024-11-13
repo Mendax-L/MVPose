@@ -10,11 +10,10 @@ import random
 
 # 自定义 Dataset 类
 class RotDataset(Dataset):
-    def __init__(self, scene_ids, target_dir, obj_id, transform=None, sample_ratio=0.5):
-        self.scene_ids = scene_ids
+    def __init__(self, obj_id, target_dir, transform=None, sample_ratio=1):
         self.obj_id = obj_id
-        self.rgb_dirs = [f'{target_dir}/{str(scene_id).zfill(6)}/view_000/crop/' for scene_id in scene_ids]
-        self.gt_files = [f'{target_dir}/{str(scene_id).zfill(6)}/view_000/view_000_info.json' for scene_id in scene_ids]
+        self.rgb_dirs = [f'{target_dir}/view_{str(view_id).zfill(3)}/crop/' for view_id in views.keys()]
+        self.gt_files = [f'{target_dir}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json' for view_id in views.keys()]
         self.transform = transform
         self.items = []
 
@@ -49,7 +48,7 @@ class RotDataset(Dataset):
         bbox = item['bbox']
         uv = np.array([item["uv"]]) 
         uv_relative = item['uv_relative']
-        Kc_inv = item['Kc_inv']
+        Kc = item['Kc']
         R = item['R']
         # t = item['t']
 
@@ -64,34 +63,33 @@ class RotDataset(Dataset):
         R = torch.tensor(R, dtype=torch.float32)
         # t = torch.tensor(t, dtype=torch.float32)
         bbox = torch.tensor(bbox, dtype=torch.float32)
-        Kc_inv = torch.tensor(Kc_inv, dtype=torch.float32) 
         # uv_relative = torch.tensor(uv_relative, dtype=torch.float32)
 
 
-        return rgb, uv, R, bbox, Kc_inv
+        return rgb, uv, R, bbox, Kc
 
 # 定义数据加载函数
-def SATRot_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=16, shuffle=True, num_workers=16, sample_ratio=0.5):
+def SATRot_loader(target_dir,scene_ids=[1], transform=None, batch_size=32, shuffle=True, num_workers=16, split_ratio=None):
     # 实例化自定义数据集
-    dataset = RotDataset(scene_ids=scene_ids, target_dir=target_dir, obj_id = obj_id, transform=transform, sample_ratio=sample_ratio)
+    dataset = RotDataset(obj_id=obj_id, target_dir=target_dir, transform=transform)
 
-    # if split_ratio is None:
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-    return dataloader
-    # else:
-    #     train_size = int(len(dataset) * split_ratio)
-    #     test_size = len(dataset) - train_size
+    if split_ratio is None:
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        return dataloader
+    else:
+        train_size = int(len(dataset) * split_ratio)
+        test_size = len(dataset) - train_size
 
-    #     # 使用 random_split 划分数据集
-    #     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+        # 使用 random_split 划分数据集
+        train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-    #     # 创建 DataLoader
-    #     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-    #     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-    #     # 创建 DataLoader
-    #     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        # 创建 DataLoader
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        # 创建 DataLoader
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
-    #     return train_loader,test_loader
+        return train_loader,test_loader
 
 # 示例调用
 if __name__ == '__main__':

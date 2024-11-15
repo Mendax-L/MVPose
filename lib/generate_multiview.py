@@ -2,6 +2,7 @@ import json
 import numpy as np
 import os
 from config import views
+import warnings
 
 
 # script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -48,15 +49,16 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
     img_h = 480
 
     # 遍历所有编号的视图
-
-    for view_id, (Rc, tc) in views.items():
-        for img_id, objs in scene_gt.items():
-            if img_id not in grouped_by_im_id:
-               continue
+    R0 = np.zeros((3, 3))  # 3x3零矩阵
+    t0 = np.zeros((3, 1))  # 3x1零向量
+    for view_id in views.keys():
+        for imgidx, (img_id, objs) in enumerate(scene_gt.items()):
+            # if img_id not in grouped_by_im_id:
+            #     continue
             for idx, obj in enumerate(objs):
                 obj_id = obj['obj_id']
-                if obj_id not in grouped_by_im_id[img_id]:
-                    continue
+                # if obj_id not in grouped_by_im_id[img_id]:
+                #     continue
                 img_id = str(img_id)  # 确保键是字符串
                 cam_data = scene_camera[img_id]
                 gt_data = scene_gt[img_id][idx]  # 假设每个视图中只有一个物体
@@ -71,17 +73,23 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                 if np.array(gt_data['obj_id'])!= obj_id:
                     raise IndexError("obj_id 不匹配")
                 
+                if img_id == '1' or imgidx == 0:
+                    R0 = np.array(gt_data['cam_R_m2c']).reshape(3, 3)
+                    t0 = np.array(gt_data['cam_t_m2c']).reshape(3, 1)
+                elif np.array_equal(R0, np.zeros((3, 3))) or np.array_equal(t0, np.zeros((3, 1))):
+                    warnings.warn("R0 or t0 is still a zero matrix. Please check the input data.")
+                
+                Rk = np.array(gt_data['cam_R_m2c']).reshape(3, 3)
+                tk = np.array(gt_data['cam_t_m2c']).reshape(3, 1)
+                tk = tk.reshape(3, 1) 
 
-                Ra = np.array(gt_data['cam_R_m2c']).reshape(3, 3)
-                ta = np.array(gt_data['cam_t_m2c']).reshape(3, 1)
-                tc = tc.reshape(3, 1)
+                Rc = np.linalg.inv(Rk) @ R0.T
+                tc = tk - np.linalg.inv(R0) @ Rk.T @ t0
 
-                Rc_inv = np.linalg.inv(Rc)
-                Rb = Rc_inv @ Ra
-                tb = (Rc_inv @ (ta - tc))
 
-                R = Rb.tolist()
-                t = tb.flatten().tolist()
+
+                R = Rk.tolist()
+                t = tk.flatten().tolist()
 
 
                 t_x,t_y,t_z = t[0],t[1],t[2]
@@ -116,8 +124,8 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                         'uv': uv,
                         'uv_relative': uv_relative,
                         'bbox': bbox,
-                        'view_R': Rc.tolist(),
-                        'view_t': tc.flatten().tolist(),
+                        'Rc': Rc.tolist(),
+                        'tc': tc.flatten().tolist(),
                         'R': R,
                         't': t,
                         'scene_id': scene_id,
@@ -134,8 +142,8 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                         'uv': uv,
                         'uv_relative': uv_relative,
                         'bbox': bbox,
-                        'view_R': Rc.tolist(),
-                        'view_t': tc.flatten().tolist(),
+                        'Rc': Rc.tolist(),
+                        'tc': tc.flatten().tolist(),
                         'R': R,
                         't': t,
                         'scene_id': scene_id,
@@ -154,14 +162,14 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
         with open(f'{view_dir_path}/view_{str(view_id).zfill(3)}_info.json', 'w') as f_out:
             json.dump(results, f_out, indent=4)
 
-        print(f"新视角物体位姿相关信息已成功计算并保存至 {view_dir_path}/view_{str(view_id).zfill(3)}/view_{str(view_id).zfill(3)}_info.json")
+        print(f"新视角物体位姿相关信息已成功计算并保存至 {view_dir_path}/view_{str(view_id).zfill(3)}_info.json")
 
 if __name__ == '__main__':
         
 
     model_dir = f"../Datasets/ycbv/models/"
     for scene_id in range(0, 92):
-        target_dir = f'../Datasets/ycbv/test/{str(scene_id).zfill(6)}'
+        target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
         if os.path.exists(target_dir):
             generate_view_info(target_dir = target_dir, scene_id = scene_id)
         else:

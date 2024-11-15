@@ -18,16 +18,17 @@ class RotDataset(Dataset):
         self.transform = transform
         self.items = []
 
-        # 加载每个文件夹的 ground truth 数据
+        # 针对每个 scene_id 进行采样
         for rgb_dir, gt_file in zip(self.rgb_dirs, self.gt_files):
             gt = self._load_gt(gt_file)
-            for data in gt:
-                if data["obj_id"] == self.obj_id:
-                    self.items.append((rgb_dir, data))
+            scene_items = [(rgb_dir, data) for data in gt if data["obj_id"] == self.obj_id]
+            
+            # 按比例采样
+            if sample_ratio < 1.0:
+                sample_size = int(len(scene_items) * sample_ratio)
+                scene_items = random.sample(scene_items, sample_size)
 
-        if sample_ratio < 1.0:
-            sample_size = int(len(self.items) * sample_ratio)
-            self.items = random.sample(self.items, sample_size)
+            self.items.extend(scene_items) 
 
         if self.transform is None:
             self.transform = SATRot_test_transform
@@ -71,7 +72,7 @@ class RotDataset(Dataset):
         return rgb, uv, R, bbox, Kc_inv
 
 # 定义数据加载函数
-def SATRot_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=16, shuffle=True, num_workers=16, sample_ratio=0.5):
+def SATRot_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=32, shuffle=True, num_workers=16, sample_ratio=0.5):
     # 实例化自定义数据集
     dataset = RotDataset(scene_ids=scene_ids, target_dir=target_dir, obj_id = obj_id, transform=transform, sample_ratio=sample_ratio)
 

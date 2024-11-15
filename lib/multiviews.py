@@ -28,14 +28,22 @@ def Center_Distance(R, t, uv1, uv2, K1, K2):
 
     return Z
 
-def Depth_From_Multiviews(CR_list , Ct_list, uv_list, Kc_list):
+def t_From_Multiviews(R_preds, Rc_list, tc_list, uv_preds, Kc_list):
 
-    Z = []
-    uv_master = uv_list[0]
+    z = []
+    uv_master = uv_preds[0]
     Kc_master = Kc_list[0]
-    for i, (CR, Ct, uv, Kc) in enumerate(zip(CR_list, Ct_list, uv_list, Kc_list)):
+    fx, fy, cx, cy = Kc_master[0, 0], Kc_master[1, 1], Kc_master[0, 2], Kc_master[1, 2]
+    for i, (Rc, tc, uv, Kc) in enumerate(zip(Rc_list, tc_list, uv_preds, Kc_list)):
         if i == 0: 
             continue
         else:
-            Z = Center_Distance(CR, Ct, uv_master, uv, Kc_master, Kc)
-    return sum(Z) / len(Z)
+            z = Center_Distance(Rc, tc, uv_master, uv, Kc_master, Kc)
+
+    z_pred = sum(z) / len(z)
+    x_pred, y_pred = fx * uv_master[0] / z_pred + cx, fy * uv_master[1] / z_pred + cy
+    t_pred = (x_pred, y_pred, z_pred)
+    
+    
+    
+    return t_preds

@@ -9,6 +9,7 @@ from tqdm import tqdm
 import os
 from utils.loader.SATRot_loader import SATRot_loader
 from lib.SATRotv2 import SATRotv2
+from lib.SATRot import SATRot
 from utils.earlystop import EarlyStopping
 from lib.loss import criterion_R, criterion_uv
 from lib.config import SATRot_train_transform, SATRot_test_transform
@@ -22,7 +23,7 @@ print(f'train_ycbv_scene_ids:{train_scene_ids}')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-model = SATRotv2(d_model = 120, nhead=6, num_layers=4).to(device)  # 将模型移到 GPU
+model = SATRot(d_model = 120, nhead=6, num_layers=4).to(device)  # 将模型移到 GPU
 optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 # Training loop
@@ -64,7 +65,7 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
 
             R_loss = criterion_R(R_pred, R_gt)
             uv_loss = criterion_uv(uv_pred, uv_gt)
-            total_loss = R_loss + 0*uv_loss
+            total_loss = R_loss + uv_loss
             total_loss.backward()
             optimizer.step()
             R_trainloss += R_loss.item() * rgb_inputs.size(0)
@@ -102,7 +103,8 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
 
                 R_loss = criterion_R(R_pred, R_gt)
                 uv_loss = criterion_uv(uv_pred, uv_gt)
-
+                # print(f"R_pred:{R_pred}")
+                # print(f"R_gt:{R_gt}")
                 R_valloss += R_loss.item() * rgb_inputs.size(0)
                 uv_valloss += uv_loss.item() * rgb_inputs.size(0)
         
@@ -121,23 +123,23 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save
         if R_early_stopping.check_early_stopping(R_valloss) and uv_early_stopping.check_early_stopping(uv_valloss):
             print(f"Early stopping at epoch {epoch}.")
             break
-    print(f"Best model saved in: {best_model_path} with loss R: {R_valloss} uv: {uv_valloss}")
+    print(f"Best model saved in: {best_model_path} with loss R: {best_R_loss} uv: {best_uv_loss}")
 
 
 def train_R():
     # Paths to images and their corresponding targets
-    for obi_id in range(1,22):
-        train_target_dir = f'/mnt/newdisk/ycbv/train_real' # RGB 图像目录
-        test_target_dir = f'/mnt/newdisk/ycbv/test'  # RGB 图像目录
+    for obj_id in range(1,22):
+        train_target_dir = f'../Datasets/ycbv/train_real' # RGB 图像目录
+        test_target_dir = f'../Datasets/ycbv/test'  # RGB 图像目录
         # train_loader,test_loader = SATRot_loader(target_dir = test_target_dir, obj_id=obj_id, transform =SATRot_train_transform,split_ratio=0.5)
-        train_loader = SATRot_loader(target_dir = train_target_dir, scene_ids=train_scene_ids, obj_id = obi_id, transform =SATRot_train_transform, sample_ratio=0.05)
-        test_loader = SATRot_loader(target_dir = test_target_dir, scene_ids=test_scene_ids, obj_id = obi_id, transform =SATRot_test_transform, sample_ratio=1)
+        train_loader = SATRot_loader(target_dir = train_target_dir, scene_ids=train_scene_ids, obj_id = obj_id, transform =SATRot_train_transform, sample_ratio=0.1)
+        test_loader = SATRot_loader(target_dir = test_target_dir, scene_ids=test_scene_ids, obj_id = obj_id, transform =SATRot_test_transform, sample_ratio=1)
 
         # Train and val the model
-        train_model(model, train_loader, test_loader, optimizer, num_epochs=45, save_path=f"weights/SATR_ycbv_{obi_id}.pth")
+        # model.load_state_dict(torch.load(f"weights/SATR_ycbv_{obj_id}.pth", map_location=device))
+        train_model(model, train_loader, test_loader, optimizer, num_epochs=45, save_path=f"weights/SATR_ycbv_{obj_id}.pth")
         #val_model(model, val_loader, criterion)
 
-        # model.load_state_dict(torch.load(f"weights/SATR_obj_{obj_id}.pth", map_location=device))
 
 
 if __name__ == "__main__":

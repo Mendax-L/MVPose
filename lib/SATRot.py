@@ -86,17 +86,15 @@ class CustomConvNet(nn.Module):
     
 
 class SATRot(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, num_samples =[1, 5, 10], window_sizes = [128, 64, 32]):
+    def __init__(self, d_model, nhead, num_layers, num_samples =[1, 10], window_sizes = [128, 32]):
         super(SATRot, self).__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        resnet_list = [models.resnet34(weights=ResNet34_Weights.DEFAULT),models.resnet18(weights=ResNet18_Weights.DEFAULT),models.resnet18(weights=ResNet18_Weights.DEFAULT)]
         self.pos_encoder = MultiScalePositionalEncoding(d_model)
         self.num_samples = num_samples
         self.window_sizes = window_sizes
-        self.extractor = nn.ModuleList([
-                CustomConvNet(d_model, origin_model) 
-                for origin_model in resnet_list  # 使用不同的 out_channels
-            ])
+        self.extractor = CustomConvNet(d_model, models.resnet34(weights=ResNet34_Weights.DEFAULT)) 
+        self.linear_projection = nn.Linear(window_sizes[-1] * window_sizes[-1] * 3, d_model)
+
                 # 定义可学习的采样坐标, (num_samples, 2) 代表 y 和 x 坐标
         self.learnable_positions = nn.ParameterList([
             nn.Parameter(torch.rand(num_samples[i], 2) * 128)  # 初始化为 (0, 128) 的随机值
@@ -211,7 +209,12 @@ class SATRot(nn.Module):
             
             # print(f'pixel_position:{pixel_position.shape}')
             # print(f'window:{window.shape}')
-            feature = self.extractor[idx](window)
+            if idx == 0: 
+                feature = self.extractor(window)
+            else:
+                window_flat = window.view(window.size(0), -1)  # 展平窗口
+                feature = self.linear_projection(window_flat)  # 直接线性映射到 d_model
+     
             # print(f'feature:{feature.shape}')
             feature = feature.view(rgb_image.size(0), n_s, -1)
             # print(f'feature_sorted:{feature.shape}')

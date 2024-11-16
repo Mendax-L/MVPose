@@ -3,6 +3,7 @@ import numpy as np
 import os
 from config import views
 import warnings
+import random
 
 
 # script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,16 +50,16 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
     img_h = 480
 
     # 遍历所有编号的视图
-    R0 = np.zeros((3, 3))  # 3x3零矩阵
-    t0 = np.zeros((3, 1))  # 3x1零向量
     for view_id in views.keys():
+        R0 = np.zeros((3, 3))  # 3x3零矩阵
+        t0 = np.zeros((3, 1))  # 3x1零向量
         for imgidx, (img_id, objs) in enumerate(scene_gt.items()):
-            # if img_id not in grouped_by_im_id:
-            #     continue
+            if img_id not in grouped_by_im_id:
+                continue
             for idx, obj in enumerate(objs):
                 obj_id = obj['obj_id']
-                # if obj_id not in grouped_by_im_id[img_id]:
-                #     continue
+                if obj_id not in grouped_by_im_id[img_id]:
+                    continue
                 img_id = str(img_id)  # 确保键是字符串
                 cam_data = scene_camera[img_id]
                 gt_data = scene_gt[img_id][idx]  # 假设每个视图中只有一个物体
@@ -83,27 +84,45 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                 tk = np.array(gt_data['cam_t_m2c']).reshape(3, 1)
                 tk = tk.reshape(3, 1) 
 
-                Rc = np.linalg.inv(Rk) @ R0.T
-                tc = tk - np.linalg.inv(R0) @ Rk.T @ t0
+                Rc = np.linalg.inv(Rk) @ R0
+                # tc = t0 - np.linalg.inv(Rc) @ tk
+                tc = tk - Rc@t0
 
 
 
                 R = Rk.tolist()
                 t = tk.flatten().tolist()
-
+                
+                diameter = models[str(obj_id)]['diameter']
+                r = diameter / 2
 
                 t_x,t_y,t_z = t[0],t[1],t[2]
+
+
+                point1 = np.array([- r/4,  - r/4, - r/4])  # 转换为 numpy 数组
+                rotated_point1 = Rk @ point1  # 矩阵乘法（旋转变换）
+                t_x1, t_y1, t_z1 = t + rotated_point1
+
+                point2 = np.array([r/4, - r/4, - r/4])
+                rotated_point2 = Rk @ point2
+                t_x2, t_y2, t_z2 = t + rotated_point2
+
+                point3 = np.array([0, r/4, r/4])
+                rotated_point3 = Rk @ point3
+                t_x3, t_y3, t_z3 = t + rotated_point3
+
+
                 # 计算物体中心在图像中的投影坐标
                 uv = (fx * (t_x / t_z) + cx, fy * (t_y / t_z) + cy)
+                uv1 = (fx * (t_x1 / t_z1) + cx, fy * (t_y1 / t_z1) + cy)
+                uv2 = (fx * (t_x2 / t_z2) + cx, fy * (t_y2 / t_z2) + cy)
+                uv3 = (fx * (t_x3 / t_z3) + cx, fy * (t_y3 / t_z3) + cy)
 
 
                 # 获取 bbox_obj 的 xyxy 信息
                 # bbox = gt_info['bbox_obj']
-
-                diameter = models[str(obj_id)]['diameter']
-                r = diameter / 2
                 
-                cors = [[t_x-r,t_y-r,t_z],[t_x+r,t_y+r,t_z]]
+                cors = [[t_x-random.uniform(0.9, 1.1)*r,t_y-random.uniform(0.9, 1.1)*r,t_z],[t_x+random.uniform(0.9, 1.1)*r,t_y+random.uniform(0.9, 1.1)*r,t_z]]
                 bbox = []
                 for i, cor in enumerate(cors):
                 # print(i)
@@ -113,6 +132,9 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                 bbox_w, bbox_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
                 uv_relative = ((uv[0] - bbox[0]) / bbox_w, (uv[1] - bbox[1]) / bbox_h)
+                uv_relative1 = ((uv1[0] - bbox[0]) / bbox_w, (uv1[1] - bbox[1]) / bbox_h)
+                uv_relative2 = ((uv2[0] - bbox[0]) / bbox_w, (uv2[1] - bbox[1]) / bbox_h)
+                uv_relative3 = ((uv3[0] - bbox[0]) / bbox_w, (uv3[1] - bbox[1]) / bbox_h)
 
                 # 检查投影点是否在图像范围内（可选）
                 if 0 <= uv[0] < img_w and 0 <= uv[1] < img_h:
@@ -123,6 +145,12 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                         'obj_id': obj_id,
                         'uv': uv,
                         'uv_relative': uv_relative,
+                        'uv1': uv1,
+                        'uv2': uv2,
+                        'uv3': uv3,
+                        'uv_relative1': uv_relative1,
+                        'uv_relative2': uv_relative2,
+                        'uv_relative3': uv_relative3,
                         'bbox': bbox,
                         'Rc': Rc.tolist(),
                         'tc': tc.flatten().tolist(),
@@ -141,6 +169,12 @@ def generate_view_info(target_dir, model_dir = f"../Datasets/ycbv/models/", img_
                         'obj_id': obj_id,
                         'uv': uv,
                         'uv_relative': uv_relative,
+                        'uv1': uv1,
+                        'uv2': uv2,
+                        'uv3': uv3,
+                        'uv_relative1': uv_relative1,
+                        'uv_relative2': uv_relative2,
+                        'uv_relative3': uv_relative3,
                         'bbox': bbox,
                         'Rc': Rc.tolist(),
                         'tc': tc.flatten().tolist(),
@@ -169,7 +203,7 @@ if __name__ == '__main__':
 
     model_dir = f"../Datasets/ycbv/models/"
     for scene_id in range(0, 92):
-        target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
+        target_dir = f'../Datasets/ycbv/test/{str(scene_id).zfill(6)}'
         if os.path.exists(target_dir):
             generate_view_info(target_dir = target_dir, scene_id = scene_id)
         else:

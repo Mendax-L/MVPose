@@ -50,9 +50,12 @@ class ValDataset(Dataset):
         bbox = item['bbox']
         uv = np.array([item["uv"]]) 
         uv_relative = item['uv_relative']
+        Kc = item['Kc']
+        Rc = item['Rc']
+        tc = item['tc']
         Kc_inv = item['Kc_inv']
         R = item['R']
-        # t = item['t']
+        t = item['t']
 
         img_name = f"{str(img_id).zfill(6)}_{str(obj_idx).zfill(6)}.png"
         img_file = os.path.join(rgb_dir, img_name)
@@ -63,16 +66,19 @@ class ValDataset(Dataset):
 
         uv = torch.tensor(uv, dtype=torch.float32).squeeze(0)
         R = torch.tensor(R, dtype=torch.float32)
-        # t = torch.tensor(t, dtype=torch.float32)
+        t = torch.tensor(t, dtype=torch.float32)
         bbox = torch.tensor(bbox, dtype=torch.float32)
         Kc_inv = torch.tensor(Kc_inv, dtype=torch.float32) 
+        Kc = torch.tensor(Kc, dtype=torch.float32) 
+        Rc = torch.tensor(Rc, dtype=torch.float32) 
+        tc = torch.tensor(tc, dtype=torch.float32) 
         # uv_relative = torch.tensor(uv_relative, dtype=torch.float32)
 
 
-        return rgb, uv, R, bbox, Kc_inv
+        return img_id, rgb, uv, R, t, bbox, Kc_inv, Kc, Rc, tc
 
 # 定义数据加载函数
-def SATVal_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=32, shuffle=True, num_workers=16, sample_ratio=0.5):
+def SATVal_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=1, shuffle=False, num_workers=1, sample_ratio=0.5):
     # 实例化自定义数据集
     dataset = ValDataset(scene_ids=scene_ids, target_dir=target_dir, obj_id = obj_id, transform=transform, sample_ratio=sample_ratio)
 
@@ -98,4 +104,4 @@ def SATVal_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_si
 if __name__ == '__main__':
     target_dir = '../Datasets/lmo/train/000001'# rgb 图像目录
     # 获取数据加载器
-    train_loader = SATRot_loader(target_dir)
+    train_loader = SATVal_loader(target_dir)

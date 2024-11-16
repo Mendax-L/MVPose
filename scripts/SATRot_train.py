@@ -23,7 +23,7 @@ print(f'train_ycbv_scene_ids:{train_scene_ids}')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-model = SATRot(d_model = 120, nhead=6, num_layers=4).to(device)  # 将模型移到 GPU
+model = SATRot(d_model = 120, nhead=4, num_layers=4).to(device)  # 将模型移到 GPU
 optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 # Training loop

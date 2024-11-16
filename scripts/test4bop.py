@@ -12,8 +12,8 @@ import torch
 from torchvision import transforms
 from lib.SATRot import SATRot
 from lib.to_allo import get_allorot
-from utils.loader.SATRot_loader import SATRot_loader
-from lib.config import test_scene_ids
+from utils.loader.test_dataloader import SATVal_loader
+from lib.config import test_scene_ids, SATRot_test_transform
 from lib import to_allo
 from lib.multiviews import t_From_Multiviews
 
@@ -51,47 +51,50 @@ def write2csv(save_path, scene_id, im_id, obj_id, score, R, t, time):
     
 def test4bop(target_dir = '../Datasets/ycbv/test', scene_ids = test_scene_ids, obj_id = 1, save_dir = 'results/lmo/MVPose_lmo-test.csv'):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    R_net = SATRot(d_model = 240, nhead=4, num_layers=4,).to(device)
-    R_net.load_state_dict(torch.load(f"weights/SATRot_obj_{obj_id}.pth", map_location=device))
+    R_net = SATRot(d_model = 120, nhead = 6, num_layers=4,).to(device)
+    R_net.load_state_dict(torch.load(f"weights/SATR_ycbv_{obj_id}.pth", map_location=device))
     R_net.eval()
     for scene_id in scene_ids:
-        val_loader = SATRot_loader(target_dir = target_dir, scene_ids=list(scene_id), obj_id = obj_id, transform =SATRot_test_transform, sample_ratio=1)
+        val_loader = SATVal_loader(target_dir = target_dir, scene_ids=[scene_id], obj_id = obj_id, transform =SATRot_test_transform, sample_ratio=1)
         R_preds = []
         uv_preds = []
         Rc_list = []
+        tc_list = []
         Kc_list = []
 
         # 打印部分数据样本
-        for img_id, rgb_inputs, uv_gt, R_gt, t_gt, bbox_gt, Kc_inv, Kc, Rc,  in val_loader:
-            img_id, rgb_inputs, uv_gt, R_gt, t_gt, bbox_gt, Kc_inv, Kc, Rc = img_id.to(device), rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device), bbox_gt.to(device), Kc_inv.to(device), Kc.to(device), Rc.to(device)  # 将数据移到 GPU
-
-
-            uv_pred, R_pred = R_net(rgb_inputs)
-            R_pred = to_allo(R_pred,uv_pred)
-
+        for img_id, rgb_inputs, uv_gt, R_gt, t_gt, bbox_gt, Kc_inv, Kc, Rc, tc  in val_loader:
+            img_id, rgb_inputs, uv_gt, R_gt, t_gt, bbox_gt, Kc_inv, Kc, Rc, tc = img_id.to(device), rgb_inputs.to(device), uv_gt.to(device), R_gt.to(device), t_gt.to(device), bbox_gt.to(device), Kc_inv.to(device), Kc.to(device), Rc.to(device), tc.to(device)  # 将数据移到 GPU
+            # print(f'scene id: {scene_id}, img id: {img_id} obj_id: {obj_id}')
+            # print(f'Rc:{Rc} tc:{tc}')
             w, h = bbox_gt[:, 2] - bbox_gt[:, 0], bbox_gt[:, 3] - bbox_gt[:, 1]
 
             uv_pred, R_pred = R_net(rgb_inputs)
+            R_pred = get_allorot(uv_pred, R_pred, Kc_inv)
 
             u_pred =(uv_pred[:, 0] * w + bbox_gt[:, 0]) # x坐标恢复
             v_pred =(uv_pred[:, 1] * h + bbox_gt[:, 1]) # y坐标恢复
 
             uv_pred = torch.cat([u_pred.unsqueeze(1),v_pred.unsqueeze(1)], dim=1)
-            R_pred = get_allorot(uv_pred, R_pred, Kc_inv)
-            R_preds.append(R_pred)
-            uv_preds.append(uv_pred)
-            Kc_list.append(Kc)
-            Rc_list.append(Rc)
+            R_preds.append(R_pred.squeeze(0))
+            uv_preds.append(uv_pred.squeeze(0))
+            Kc_list.append(Kc.squeeze(0))
+            Rc_list.append(Rc.squeeze(0))
+            tc_list.append(tc.squeeze(0))
+            if img_id == 1:
+                print(f'img_id:{img_id}')        
+                print(f'R_pred:{R_pred}')
+                print(f'R_gt:{R_gt}')        
+                print(f'uv_pred:{uv_preds[0]}')
+                print(f'uv_gt:{uv_gt[0]}')
+                print(f't_gt:{t_gt}')       
 
-        t_pred = t_From_Multiviews(R_preds , Rc_list, uv_preds, Kc_list)
+
+        t_preds = t_From_Multiviews(Rc_list , tc_list, uv_preds, Kc_list)
 
 
-        print(f'R_pred:{R_pred}')
-        print(f'R_gt:{R_gt[0]}')        
-        print(f't_pred:{t_pred}')
-        print(f't_gt:{t_gt[0]}')       
-        print(f'uv_pred:{uv_preds[0]}')
-        print(f'uv_gt:{uv_gt[0]}')
+        print(f't_pred:{t_preds[0]}')
+
 
 
         score=torch.tensor(1).repeat(scene_id.shape[0])
@@ -109,5 +112,5 @@ if __name__ == '__main__':
         with open(file_path, 'w') as f:
             pass  # 清空文件内容
     for obj_id in range(1, 22):
-        test4bop(target_dir = 'datasets/lmo/test/000002',scene_ids = test_scene_ids, obj_id = obj_id, save_dir = file_path)
+        test4bop(target_dir = '../Datasets/ycbv/test',scene_ids = test_scene_ids, obj_id = obj_id, save_dir = file_path)
         

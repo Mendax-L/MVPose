@@ -1,8 +1,14 @@
+import torch
+from sklearn.linear_model import RANSACRegressor
+from sklearn.cluster import KMeans, DBSCAN
+import numpy as np
+
 def Center_Distance(R, t, uv1, uv2, K1, K2):
     # 提取旋转矩阵和平移向量
-    r31, r32, r33 = R[2, :]
+    # print(R,t)
     r11, r12, r13 = R[0, :]
     r21, r22, r23 = R[1, :]
+    r31, r32, r33 = R[2, :]
     tx, ty, tz = t
 
     # 提取坐标点 u1, v1 和 u2, v2
@@ -14,10 +20,24 @@ def Center_Distance(R, t, uv1, uv2, K1, K2):
     fx2, fy2, cx2, cy2 = K2[0, 0], K2[1, 1], K2[0, 2], K2[1, 2]
 
     # 计算 A1
-    A1 = (r31 * (u1 - cx1) * (u2 - cx2)) / (fx1 * fx2) + (r32 * (v1 - cy1) * (u2 - cx2)) / (fy1 * fx2) + (r33 * (u2 - cx2)) / fx2 - (r11 * (u1 - cx1)) / fx1 - (r12 * (v1 - cy1)) / fx1 - r13
+    A1 = (
+        (r31 * (u1 - cx1) * (u2 - cx2)) / (fx1 * fx2)
+        + (r32 * (v1 - cy1) * (u2 - cx2)) / (fy1 * fx2)
+        + (r33 * (u2 - cx2)) / fx2
+        - (r11 * (u1 - cx1)) / fx1
+        - (r12 * (v1 - cy1)) / fx1
+        - r13
+    )
 
     # 计算 A2
-    A2 = (r31 * (u1 - cx1) * (v2 - cy2)) / (fx1 * fy2) + (r32 * (v1 - cy1) * (v2 - cy2)) / (fy1 * fy2) + (r33 * (v2 - cy2)) / fy2 - (r21 * (u1 - cx1)) / fy1 - (r22 * (v1 - cy1)) / fy1 - r23
+    A2 = (
+        (r31 * (u1 - cx1) * (v2 - cy2)) / (fx1 * fy2)
+        + (r32 * (v1 - cy1) * (v2 - cy2)) / (fy1 * fy2)
+        + (r33 * (v2 - cy2)) / fy2
+        - (r21 * (u1 - cx1)) / fy1
+        - (r22 * (v1 - cy1)) / fy1
+        - r23
+    )
 
     # 计算 b1 和 b2
     b1 = tx - (tz * (u2 - cx2)) / fx2
@@ -28,22 +48,57 @@ def Center_Distance(R, t, uv1, uv2, K1, K2):
 
     return Z
 
-def t_From_Multiviews(R_preds, Rc_list, tc_list, uv_preds, Kc_list):
 
-    z = []
+def t_From_Multiviews(Rc_list, tc_list, uv_preds, Kc_list):
+    # 初始化
+    device = Rc_list[0].device
+    z_values = []
     uv_master = uv_preds[0]
     Kc_master = Kc_list[0]
-    fx, fy, cx, cy = Kc_master[0, 0], Kc_master[1, 1], Kc_master[0, 2], Kc_master[1, 2]
+    print(f'Rc_list: {len(Rc_list)}')
     for i, (Rc, tc, uv, Kc) in enumerate(zip(Rc_list, tc_list, uv_preds, Kc_list)):
-        if i == 0: 
+        if i == 0:
+            print(Rc,tc)
             continue
-        else:
-            z = Center_Distance(Rc, tc, uv_master, uv, Kc_master, Kc)
+        # 计算从多视图推断的深度
+        # tc = -Rc @ tc
+        z = Center_Distance(Rc, tc, uv_master, uv, Kc_master, Kc)
+        z_values.append(z)
+    # print(f'z_values: {len(z_values)}'
+    # print(f'z_values: {z_values}')
+    
 
-    z_pred = sum(z) / len(z)
-    x_pred, y_pred = fx * uv_master[0] / z_pred + cx, fy * uv_master[1] / z_pred + cy
-    t_pred = (x_pred, y_pred, z_pred)
-    
-    
-    
+    # 计算平均深度
+    z_values = torch.stack(z_values)
+    z_values_np = z_values.cpu().detach().numpy()
+    # 使用 DBSCAN 聚类
+    dbscan = DBSCAN(eps=10, min_samples=4)  # eps 是距离阈值，min_samples 是最小样本数
+    z_values_np_reshaped = z_values_np.reshape(-1, 1)
+    labels = dbscan.fit_predict(z_values_np_reshaped)
+
+    # 找到非噪声点的簇
+    valid_clusters = labels[labels != -1]  # -1 表示噪声点
+    largest_cluster = np.argmax(np.bincount(valid_clusters))
+
+    # 选出最大簇的深度值
+    cluster_values = z_values_np[labels == largest_cluster]
+
+    # 计算该簇的平均深度
+    z_pred = torch.tensor(cluster_values.mean(), device='cuda')
+    print(f'z_pred: {z_pred}')
+
+    # 从主视图反算 x, y, z 的预测值
+    fx, fy, cx, cy = Kc_master[0, 0], Kc_master[1, 1], Kc_master[0, 2], Kc_master[1, 2]
+    x_pred = (uv_master[0] - cx) * z_pred / fx
+    y_pred = (uv_master[1] - cy) * z_pred / fy
+    t_master_pred = torch.tensor([x_pred, y_pred, z_pred]).to(device)
+
+    # 更新所有视图下的 t_pred
+    t_preds = []
+    print(f't_master_pred: {t_master_pred}')
+    for Rc, tc in zip(Rc_list, tc_list):
+        t_temp = Rc @ (t_master_pred - tc)  # 转换到世界坐标系
+        t_preds.append(t_temp)
+    print(t_preds)
+    t_preds = torch.stack(t_preds)
     return t_preds

@@ -78,7 +78,7 @@ class ValDataset(Dataset):
         return img_id, rgb, uv, R, t, bbox, Kc_inv, Kc, Rc, tc
 
 # 定义数据加载函数
-def SATVal_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=1, shuffle=False, num_workers=1, sample_ratio=0.5):
+def SATVal_loader(target_dir, obj_id =1, scene_ids=[1], transform=None, batch_size=1, shuffle=False, num_workers=1, sample_ratio=1):
     # 实例化自定义数据集
     dataset = ValDataset(scene_ids=scene_ids, target_dir=target_dir, obj_id = obj_id, transform=transform, sample_ratio=sample_ratio)
 

@@ -24,7 +24,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 model = SATRot(d_model = 120, nhead=4, num_layers=4).to(device)  # 将模型移到 GPU
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
 # Training loop
 def train_model(model, train_loader, test_loader, optimizer, num_epochs=30, save_path="model.pth"):

@@ -26,22 +26,21 @@ def write2csv(save_path, scene_id, im_id, obj_id, score, R, t, time):
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
-    batch_size = scene_id.shape[0]  # 获取 batch_size
     # print(f"scene_id: {scene_id.shape}, im_id: {im_id.shape}, obj_id: {obj_id.shape}, score: {score.shape}, R: {R.shape}, t: {t.shape}, time: {time.shape}")
     # 将数据按批次逐行写入 CSV 文件
     with open(save_path, mode='a', newline='') as file:
         writer = csv.writer(file)
         
         # 遍历每个 batch 的数据
-        for i in range(batch_size):
+        for i in range(len(R)):
             row = [
-                scene_id[i].cpu().item(),               # scene_id 单个元素
+                scene_id,               # scene_id 单个元素
                 im_id[i].cpu().item(),                  # im_id 单个元素
-                obj_id[i].cpu().item(),                 # obj_id 单个元素
-                score[i].cpu().item(),                  # score 单个元素
+                obj_id,                 # obj_id 单个元素
+                score[i],                  # score 单个元素
                 ' '.join(map(str, R[i].detach().flatten().cpu().numpy())),  # 旋转矩阵 R (展平并以空格分隔)
                 ' '.join(map(str, t[i].detach().flatten().cpu().numpy())),  # 平移向量 t (展平并以空格分隔)
-                time[i].cpu().item() if isinstance(time, torch.Tensor) else time  # time 单个元素
+                time[i]  # time 单个元素
             ]
             writer.writerow(row)  # 写入一行数据
 
@@ -56,11 +55,18 @@ def test4bop(target_dir = '../Datasets/ycbv/test', scene_ids = test_scene_ids, o
     R_net.eval()
     for scene_id in scene_ids:
         val_loader = SATVal_loader(target_dir = target_dir, scene_ids=[scene_id], obj_id = obj_id, transform =SATRot_test_transform, sample_ratio=1)
+        if len(val_loader) == 0:
+            continue
         R_preds = []
         uv_preds = []
         Rc_list = []
         tc_list = []
         Kc_list = []
+        score_list = []
+        time_list = []
+        img_ids = []
+        t_gts = []
+        uv_gts = []
 
         # 打印部分数据样本
         for img_id, rgb_inputs, uv_gt, R_gt, t_gt, bbox_gt, Kc_inv, Kc, Rc, tc  in val_loader:
@@ -75,33 +81,30 @@ def test4bop(target_dir = '../Datasets/ycbv/test', scene_ids = test_scene_ids, o
             u_pred =(uv_pred[:, 0] * w + bbox_gt[:, 0]) # x坐标恢复
             v_pred =(uv_pred[:, 1] * h + bbox_gt[:, 1]) # y坐标恢复
 
+
             uv_pred = torch.cat([u_pred.unsqueeze(1),v_pred.unsqueeze(1)], dim=1)
+
+            
+            
+            img_ids.append(img_id)
             R_preds.append(R_pred.squeeze(0))
             uv_preds.append(uv_pred.squeeze(0))
             Kc_list.append(Kc.squeeze(0))
             Rc_list.append(Rc.squeeze(0))
             tc_list.append(tc.squeeze(0))
-            if img_id == 1:
-                print(f'img_id:{img_id}')        
-                print(f'R_pred:{R_pred}')
-                print(f'R_gt:{R_gt}')        
-                print(f'uv_pred:{uv_preds[0]}')
-                print(f'uv_gt:{uv_gt[0]}')
-                print(f't_gt:{t_gt}')       
+            score_list.append(1)
+            time_list.append(-1)
+
+            t_gts.append(t_gt.squeeze(0))
+            uv_gts.append(uv_gt.squeeze(0))
+
 
 
         t_preds = t_From_Multiviews(Rc_list , tc_list, uv_preds, Kc_list)
+        print(f't_gts:{t_gts}')
+        print(f't_preds:{t_preds}')
 
-
-        print(f't_pred:{t_preds[0]}')
-
-
-
-        score=torch.tensor(1).repeat(scene_id.shape[0])
-        elapsed_time=torch.tensor(-1).repeat(scene_id.shape[0])
-
-
-        write2csv(save_dir,scene_id, img_id, obj_id, score,R_gt,t_pred,elapsed_time)
+        write2csv(save_dir,scene_id, img_ids, obj_id, score_list,R_preds,t_preds,time_list)
             
 
 

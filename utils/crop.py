@@ -95,9 +95,9 @@ def crop_and_save(image, crop_area, output_dir, filename):
 
 # 函数生成中心点数据并保存裁剪图像
 def process_view(scene_id, view_id):
-    target_dir = f'../Datasets/ycbv/test/{str(scene_id).zfill(6)}'
+    target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
     newview_rgb_dir_path = f"{target_dir}/view_{str(view_id).zfill(3)}/rgb"
-    crop_dir_path = f"../Datasets/ycbv/test/{str(scene_id).zfill(6)}/view_{str(view_id).zfill(3)}/crop"
+    crop_dir_path = f"../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}/view_{str(view_id).zfill(3)}/crop"
     # if not os.path.exists(newview_rgb_dir_path):
     #     os.makedirs(newview_rgb_dir_path)
     #     print(f"目录 {newview_rgb_dir_path} 已创建。")
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     view_num = 1
     scene_ids = []
     for scene_id in range(0, 92):
-        target_dir = f'../Datasets/ycbv/test/{str(scene_id).zfill(6)}'
+        target_dir = f'../Datasets/ycbv/train_real/{str(scene_id).zfill(6)}'
         if os.path.exists(target_dir):
             scene_ids.append(scene_id)
         else:

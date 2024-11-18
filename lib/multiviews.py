@@ -52,53 +52,72 @@ def Center_Distance(R, t, uv1, uv2, K1, K2):
 def t_From_Multiviews(Rc_list, tc_list, uv_preds, Kc_list):
     # 初始化
     device = Rc_list[0].device
-    z_values = []
-    uv_master = uv_preds[0]
-    Kc_master = Kc_list[0]
-    print(f'Rc_list: {len(Rc_list)}')
-    for i, (Rc, tc, uv, Kc) in enumerate(zip(Rc_list, tc_list, uv_preds, Kc_list)):
-        if i == 0:
-            print(Rc,tc)
-            continue
-        # 计算从多视图推断的深度
-        # tc = -Rc @ tc
-        z = Center_Distance(Rc, tc, uv_master, uv, Kc_master, Kc)
-        z_values.append(z)
+
+    frames_len = len(Rc_list)
+    step = max(1, int(0.1 * frames_len))  # 确保步长至少为 1
+    t_preds = []
+    for j in range(len(Rc_list)):
+        z_values = []
+        for i, (Rc, tc, uv, Kc) in enumerate(zip(Rc_list, tc_list, uv_preds, Kc_list)):
+            Rc_r = Rc @ torch.inverse(Rc_list[j])
+            tc_r = tc - Rc_r @ tc_list[j] 
+            z = Center_Distance(Rc_r, tc_r, uv_preds[j], uv, Kc_list[j], Kc)
+            z_values.append(z)
+        
+        z_values = torch.stack(z_values)  # 将列表转为 PyTorch 张量
+        z_positive = z_values[z_values > 0]
+        z_values_np = z_positive.cpu().detach().numpy()
+        # 使用 DBSCAN 聚类
+        dbscan = DBSCAN(eps=15, min_samples=5)  # eps 是距离阈值，min_samples 是最小样本数
+        z_values_np_reshaped = z_values_np.reshape(-1, 1)
+        labels = dbscan.fit_predict(z_values_np_reshaped)
+
+        # 找到非噪声点的簇
+        valid_clusters = labels[labels != -1]  # -1 表示噪声点
+        largest_cluster = np.argmax(np.bincount(valid_clusters))
+
+        # 选出最大簇的深度值
+        cluster_values = z_values_np[labels == largest_cluster]
+
+        # 计算该簇的平均深度
+        z_pred = torch.tensor(cluster_values.mean(), device='cuda')
+
+        # z_positive = z_values[z_values > 0]
+        # if len(z_positive) > 0:
+        #     z_pred = z_positive.mean()
+        # else:
+        #     z_pred = z_values.mean()
+        fx, fy, cx, cy = Kc_list[j][0, 0], Kc_list[j][1, 1], Kc_list[j][0, 2], Kc_list[j][1, 2]
+        x_pred = (uv_preds[j][0] - cx) * z_pred / fx
+        y_pred = (uv_preds[j][1] - cy) * z_pred / fy
+        t_preds.append(torch.tensor([x_pred, y_pred, z_pred]).to(device))
+
+    return t_preds
+        
     # print(f'z_values: {len(z_values)}'
     # print(f'z_values: {z_values}')
     
 
     # 计算平均深度
-    z_values = torch.stack(z_values)
-    z_values_np = z_values.cpu().detach().numpy()
-    # 使用 DBSCAN 聚类
-    dbscan = DBSCAN(eps=10, min_samples=4)  # eps 是距离阈值，min_samples 是最小样本数
-    z_values_np_reshaped = z_values_np.reshape(-1, 1)
-    labels = dbscan.fit_predict(z_values_np_reshaped)
+    # z_values_np = z_values.cpu().detach().numpy()
+    # # 使用 DBSCAN 聚类
+    # dbscan = DBSCAN(eps=20, min_samples=5)  # eps 是距离阈值，min_samples 是最小样本数
+    # z_values_np_reshaped = z_values_np.reshape(-1, 1)
+    # labels = dbscan.fit_predict(z_values_np_reshaped)
 
-    # 找到非噪声点的簇
-    valid_clusters = labels[labels != -1]  # -1 表示噪声点
-    largest_cluster = np.argmax(np.bincount(valid_clusters))
+    # # 找到非噪声点的簇
+    # valid_clusters = labels[labels != -1]  # -1 表示噪声点
+    # largest_cluster = np.argmax(np.bincount(valid_clusters))
 
-    # 选出最大簇的深度值
-    cluster_values = z_values_np[labels == largest_cluster]
+    # # 选出最大簇的深度值
+    # cluster_values = z_values_np[labels == largest_cluster]
 
-    # 计算该簇的平均深度
-    z_pred = torch.tensor(cluster_values.mean(), device='cuda')
-    print(f'z_pred: {z_pred}')
+    # # 计算该簇的平均深度
+    # z_pred = torch.tensor(cluster_values.mean(), device='cuda')
+
+    # print(f'z_pred: {z_pred}')
 
     # 从主视图反算 x, y, z 的预测值
-    fx, fy, cx, cy = Kc_master[0, 0], Kc_master[1, 1], Kc_master[0, 2], Kc_master[1, 2]
-    x_pred = (uv_master[0] - cx) * z_pred / fx
-    y_pred = (uv_master[1] - cy) * z_pred / fy
-    t_master_pred = torch.tensor([x_pred, y_pred, z_pred]).to(device)
 
     # 更新所有视图下的 t_pred
-    t_preds = []
-    print(f't_master_pred: {t_master_pred}')
-    for Rc, tc in zip(Rc_list, tc_list):
-        t_temp = Rc @ (t_master_pred - tc)  # 转换到世界坐标系
-        t_preds.append(t_temp)
-    print(t_preds)
-    t_preds = torch.stack(t_preds)
-    return t_preds
+

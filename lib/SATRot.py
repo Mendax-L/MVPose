@@ -19,106 +19,50 @@ class MultiScalePositionalEncoding(nn.Module):
         
         self.d_model = d_model
 
-    def forward(self, center_u, center_v, height, width, window_sizes=[16, 32]):
+    def forward(self, height, width, window_sizes=[16, 32]):
         """
         动态生成二维位置编码，相对于图片中心生成
-        :param center_u: 每张图片的中心 u 坐标 (batch_size,)
-        :param center_v: 每张图片的中心 v 坐标 (batch_size,)
         :param height: 图像的高度
         :param width: 图像的宽度
         :param window_sizes: 多个窗口尺度
-        :return: 对应 (batch_size, height, width, d_model) 的二维位置编码矩阵
+        :return: 对应 (height, width) 的二维位置编码矩阵，大小为 (height, width, d_model)
         """
-        batch_size = center_u.size(0)
+        # 获取图像中心的坐标
+        center_y, center_x = height // 2, width // 2
 
         # 创建每个像素相对于中心位置的 (y, x) 网格
-        y_pos = torch.arange(height, dtype=torch.float32).unsqueeze(1).repeat(1, width).unsqueeze(0).to(center_u.device)  # (1, H, W)
-        x_pos = torch.arange(width, dtype=torch.float32).unsqueeze(0).repeat(height, 1).unsqueeze(0).to(center_u.device)  # (1, H, W)
-        center_v = center_v.view(batch_size, 1, 1)  # (B, 1, 1)
-        center_u = center_u.view(batch_size, 1, 1)  # (B, 1, 1)
+        y_pos = torch.arange(height, dtype=torch.float32).unsqueeze(1).repeat(1, width) - center_y
+        x_pos = torch.arange(width, dtype=torch.float32).unsqueeze(0).repeat(height, 1) - center_x
 
-        # 相对于中心点的偏移
-        y_pos = y_pos - center_v  # (B, H, W)
-        x_pos = x_pos - center_u  # (B, H, W)
+        # 初始化二维位置编码，分别对 y 和 x 进行编码
+        pe_y = torch.zeros(height, width, self.d_model // 3)
+        pe_x = torch.zeros(height, width, self.d_model // 3)
+        pe_w = torch.zeros(len(window_sizes), self.d_model // 3)
 
-        # 初始化二维位置编码
-        pe_y = torch.zeros(batch_size, height, width, self.d_model // 3, device=center_u.device)
-        pe_x = torch.zeros(batch_size, height, width, self.d_model // 3, device=center_u.device)
-        pe_w = torch.zeros(len(window_sizes), self.d_model // 3, device=center_u.device)
-
-        div_term = torch.exp(torch.arange(0, self.d_model // 3, 2).float().to(center_u.device) * -(math.log(10000.0) / (self.d_model // 3)))
+        div_term = torch.exp(torch.arange(0, self.d_model // 3, 2).float() * -(math.log(10000.0) / (self.d_model // 3)))
 
         # 对 y 方向进行正弦-余弦编码
-        pe_y[..., 0::2] = torch.sin(y_pos.unsqueeze(-1) * div_term)  # 偶数索引使用 sin
-        pe_y[..., 1::2] = torch.cos(y_pos.unsqueeze(-1) * div_term)  # 奇数索引使用 cos
+        pe_y[:, :, 0::2] = torch.sin(y_pos.unsqueeze(-1) * div_term)  # 偶数索引使用 sin
+        pe_y[:, :, 1::2] = torch.cos(y_pos.unsqueeze(-1) * div_term)  # 奇数索引使用 cos
 
         # 对 x 方向进行正弦-余弦编码
-        pe_x[..., 0::2] = torch.sin(x_pos.unsqueeze(-1) * div_term)
-        pe_x[..., 1::2] = torch.cos(x_pos.unsqueeze(-1) * div_term)
+        pe_x[:, :, 0::2] = torch.sin(x_pos.unsqueeze(-1) * div_term)
+        pe_x[:, :, 1::2] = torch.cos(x_pos.unsqueeze(-1) * div_term)
 
         # 对 window_size 进行正弦-余弦编码
         for idx, w in enumerate(window_sizes):
-            pe_w[idx, 0::2] = torch.sin(w * div_term)
-            pe_w[idx, 1::2] = torch.cos(w * div_term)
+            pe_w[idx, 0::2] = torch.sin(w * div_term)  # 偶数索引使用 sin
+            pe_w[idx, 1::2] = torch.cos(w * div_term)  # 奇数索引使用 cos
 
-        # 合并 y 和 x 的编码结果
+        # 将 y 和 x 的编码结果合并，形成最终的二维位置编码
         pe = torch.cat([pe_y, pe_x], dim=-1)
 
         # 为每个 window_size 生成独立的编码并加到 pe 中
-        pe = pe.unsqueeze(3).repeat(1, 1, 1, len(window_sizes), 1)  # (B, H, W, num_windows, d_model//3)
-        pe_w = pe_w.unsqueeze(0).unsqueeze(1).unsqueeze(2).repeat(batch_size, height, width, 1, 1)
+        pe = pe.unsqueeze(2).repeat(1, 1, len(window_sizes), 1)  # 复制编码为每个 window_size 使用
+        pe_w = pe_w.unsqueeze(0).unsqueeze(1).repeat(height, width, 1, 1)  # 扩展 window_size 的编码
         pe = torch.cat([pe, pe_w], dim=-1)
 
         return pe
-class LearnablePositionalEncoding(nn.Module):
-    def __init__(self, d_model, height, width, window_sizes=[128, 32]):
-        """
-        初始化可学习的二维位置编码
-        :param d_model: 编码的特征维度
-        :param height: 图像的高度
-        :param width: 图像的宽度
-        :param window_sizes: 多尺度窗口大小
-        """
-        super(LearnablePositionalEncoding, self).__init__()
-        self.d_model = d_model
-        self.height = height
-        self.width = width
-        self.window_sizes = window_sizes
-
-        # 定义可学习的位置编码参数 (H, W, d_model)
-        self.position_encoding = nn.Parameter(torch.randn(1, height, width, d_model))  # 可学习参数
-        self.scale_encoding = nn.Parameter(torch.randn(len(window_sizes), d_model))  # 可学习窗口尺度编码
-
-    def forward(self, uv_init, window_sizes=None):
-        """
-        根据 uv_init 动态生成位置编码
-        :param uv_init: 图像的中心位置 (batch_size, 2)
-        :param window_sizes: 多尺度窗口大小
-        :return: 对应 (batch_size, height, width, d_model) 的位置编码矩阵
-        """
-        if window_sizes is None:
-            window_sizes = self.window_sizes
-
-        batch_size = uv_init.size(0)
-
-        # 计算中心点偏移 (batch_size, H, W, 1)
-        y_indices = torch.arange(self.height, device=uv_init.device).view(1, -1, 1)  # (1, H, 1)
-        x_indices = torch.arange(self.width, device=uv_init.device).view(1, 1, -1)  # (1, 1, W)
-        y_diff = y_indices - uv_init[:, 1].view(-1, 1, 1)  # (batch_size, H, W)
-        x_diff = x_indices - uv_init[:, 0].view(-1, 1, 1)  # (batch_size, H, W)
-
-        # 相对位置加权编码 (batch_size, H, W, d_model)
-        relative_encoding = self.position_encoding * torch.exp(
-            -((y_diff ** 2 + x_diff ** 2).unsqueeze(-1) / (2 * self.d_model))
-        )
-
-        # 加入窗口尺度编码
-        scale_encoding = self.scale_encoding.unsqueeze(0).unsqueeze(1).unsqueeze(2)  # (1, 1, 1, num_scales, d_model)
-        scale_encoding = scale_encoding.repeat(batch_size, self.height, self.width, 1, 1)  # 扩展到全尺寸
-        relative_encoding = relative_encoding.unsqueeze(3) + scale_encoding  # 叠加窗口编码
-
-        # 输出最终位置编码
-        return relative_encoding  # (batch_size, H, W, num_scales, d_model)
 
 
 class CustomConvNet(nn.Module):
@@ -143,10 +87,10 @@ class CustomConvNet(nn.Module):
     
 
 class SATRot(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, num_samples =[1, 8], window_sizes = [128, 32]):
+    def __init__(self, d_model, nhead, num_layers, num_samples =[1, 10], window_sizes = [128, 24]):
         super(SATRot, self).__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.pos_encoder = LearnablePositionalEncoding(d_model)
+        self.pos_encoder = MultiScalePositionalEncoding(d_model)
         self.num_samples = num_samples
         self.window_sizes = window_sizes
         self.extractor = CustomConvNet(d_model, models.resnet34(weights=ResNet34_Weights.DEFAULT)) 
@@ -163,27 +107,21 @@ class SATRot(nn.Module):
 
         self.R_fc = nn.Sequential(
             nn.Linear(d_model, d_model),
-            nn.Dropout(p=0.5),
+            nn.Dropout(p=0.1),
             nn.ReLU(),
             nn.Linear(d_model, 6)  # 回归六个连续值
         )
 
-        self.uv_fc_1 = nn.Sequential(
+        self.uv_fc = nn.Sequential(
             nn.Linear(d_model, d_model),
-            nn.Dropout(p=0.3),
-            nn.ReLU(),
-            nn.Linear(d_model, 2),  # 回归2个连续值
-            nn.Sigmoid()
-        )
-        self.uv_fc_2 = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p=0.1),
             nn.ReLU(),
             nn.Linear(d_model, 2),  # 回归2个连续值
             nn.Sigmoid()
         )
 
-                
+        self.pos_encoding = self.pos_encoder(128, 128, self.window_sizes).detach()
+        self.pos_encoding = self.pos_encoding.to(device)         
 
 
     def extract_and_sample_features(self, single_image, idx, window_size=16):
@@ -273,8 +211,6 @@ class SATRot(nn.Module):
             pixel_positions.append(pixel_position)
             features.append(feature)
 
-        global_feature = features[0].squeeze(1)
-        uv_init = self.uv_fc_1(global_feature)
         pixel_positions = torch.cat(pixel_positions, dim=1)  # Stack along dim 1
         features = torch.cat(features, dim=1)  # Stack along dim 1
 
@@ -288,24 +224,12 @@ class SATRot(nn.Module):
         # print(f'features:{features.device}')
         # print(f'pixel_positions:{pixel_positions.shape}')
 
-        pos_encoding = self.pos_encoder(uv_init, self.window_sizes).to("cuda:0")
         
         # print(f'pos_encoding:{pos_encoding.shape}')
 
         # 根据像素位置提取对应的 Positional Encoding
-        batch_size, num_samples, _ = pixel_positions.shape
+        positional_features = self.pos_encoding[pixel_positions[:, :, 0], pixel_positions[:, :, 1], pixel_positions[:, :, 2]] # (batch_size, num_samples, d_model)
 
-        # 确保索引在合法范围内
-        pixel_positions[:, :, 0] = torch.clamp(pixel_positions[:, :, 0], 0, pos_encoding.size(1) - 1)  # 限制 y 范围
-        pixel_positions[:, :, 1] = torch.clamp(pixel_positions[:, :, 1], 0, pos_encoding.size(2) - 1)  # 限制 x 范围
-        pixel_positions[:, :, 2] = torch.clamp(pixel_positions[:, :, 2], 0, pos_encoding.size(3) - 1)  # 限制窗口范围
-
-        # 逐批次索引
-        positional_features = torch.stack([
-            pos_encoding[b, pixel_positions[b, :, 0], pixel_positions[b, :, 1], pixel_positions[b, :, 2], :]
-            for b in range(batch_size)
-        ])  
-        # (        print(f'positional_features: {positional_features.shape}')
         # print(f'features: {features.shape}')
         # 将卷积提取的特征和位置编码相加
         input_sequence = features + positional_features
@@ -327,7 +251,7 @@ class SATRot(nn.Module):
         r3 = F.normalize(r3, p=2, dim=1)  # 归一化到单位向量
         R = torch.cat([r1 , r2, r3], dim=1)
 
-        uv = self.uv_fc_2(transformer_output.mean(dim=1))
+        uv = self.uv_fc(transformer_output.mean(dim=1))
 
 
         return uv, R
@@ -349,7 +273,7 @@ if __name__ == '__main__':
     model = SATRot(d_model=d_model, nhead=nhead, num_layers=num_layers).to(device)
     
 
-    # 将 RGB 图像传入 Transformer，进行均匀采样并得到回归结果
+    # 将 RGBA 图像传入 Transformer，进行均匀采样并得到回归结果
     num_samples = 128
     predicted_output = model(rgb_image)
 
